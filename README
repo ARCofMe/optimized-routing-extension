@@ -1,0 +1,25 @@
+# 🗺️ Daily Routing Extension
+
+This extension generates optimized daily routes for service technicians using ticket data from BlueFolder and Google Maps Directions API.
+
+It is designed to streamline dispatching and improve on-site efficiency for service-based businesses.
+
+---
+
+## 🚀 Features
+
+- 🔄 Pulls daily service tickets from the BlueFolder API
+- 📍 Extracts customer locations from ticket data
+- 🧠 Geocodes addresses using Google Maps API
+- 🧭 Optimizes travel routes and generates turn-by-turn Google Maps URLs
+- 🧪 Modular and testable architecture
+
+---
+
+## 🛠 Setup
+
+1. **Clone the repository**
+
+```bash
+git clone https://github.com/ARCofMe/daily-routing-extension.git
+cd daily-routing-extension
