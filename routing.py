@@ -1,31 +1,54 @@
 import os
-from dotenv import load_dotenv
 import googlemaps
-from urllib.parse import quote_plus
+from dotenv import load_dotenv
+
 
 load_dotenv()
-gmaps = googlemaps.Client(key=os.getenv("GOOGLE_MAPS_API_KEY"))
 
 
-def geocode_address(address):
-    result = gmaps.geocode(address)
-    if not result:
-        raise ValueError(f"Could not geocode address: {address}")
-    location = result[0]["geometry"]["location"]
-    return [location["lng"], location["lat"]]
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+if not GOOGLE_MAPS_API_KEY:
+    raise ValueError("GOOGLE_MAPS_API_KEY is not set in the environment.")
 
 
-def build_google_maps_url(addresses):
+gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+
+
+def get_optimized_route(addresses):
     if len(addresses) < 2:
-        raise ValueError("At least 2 addresses (start and end) required.")
+        raise ValueError("Need at least an origin and destination.")
 
-    origin = quote_plus(addresses[0])
-    destination = quote_plus(addresses[-1])
-    waypoints = "|".join(quote_plus(addr) for addr in addresses[1:-1])  # midpoints only
 
-    return (
-        f"https://www.google.com/maps/dir/?api=1"
-        f"&origin={origin}"
-        f"&destination={destination}"
-        f"&waypoints=optimize:true|{waypoints}"
+    origin = addresses[0]
+    destination = addresses[-1]
+    waypoints = addresses[1:-1]
+
+
+    directions_result = gmaps.directions(
+        origin,
+        destination,
+        waypoints=waypoints,
+        optimize_waypoints=True
     )
+
+
+    if not directions_result:
+        raise RuntimeError("No directions found.")
+
+
+    waypoint_order = directions_result[0]['waypoint_order']
+    sorted_waypoints = [waypoints[i] for i in waypoint_order]
+
+
+    return {
+        "origin": origin,
+        "destination": destination,
+        "waypoints": sorted_waypoints,
+        "order": waypoint_order,
+    }
+
+
+def build_google_maps_url(origin, destination, sorted_waypoints):
+    full_route = [origin] + sorted_waypoints + [destination]
+    encoded = [addr.replace(" ", "+") for addr in full_route]
+    return "https://www.google.com/maps/dir/" + "/".join(encoded)

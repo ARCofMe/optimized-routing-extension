@@ -10,7 +10,7 @@ API_KEY = os.getenv("BLUEFOLDER_API_KEY")
 ACCOUNT_NAME = os.getenv("BLUEFOLDER_ACCOUNT_NAME")
 
 # Example base URL — adjust to match documentation
-BASE_URL = f"https://{ACCOUNT_NAME}.bluefolder.com/api/2.0/json/"
+BASE_URL = f"https://app.bluefolder.com/api/2.0/json/"
 
 HEADERS = {
     "Content-Type": "application/json",
