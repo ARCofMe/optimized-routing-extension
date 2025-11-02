@@ -1,69 +1,87 @@
 # 🗺️ Daily Routing Extension
 
-This extension generates optimized daily routes for service technicians using ticket data from BlueFolder and Google Maps Directions API.
-
-It is designed to streamline dispatching and improve on-site efficiency for service-based businesses.
+This extension generates optimized daily service routes using the BlueFolder API and Google Maps Directions API.  
+It streamlines technician dispatching by building turn-by-turn routes from service ticket addresses.
 
 ---
 
 ## 🚀 Features
 
-- 🔄 Pulls daily service tickets from the BlueFolder API  
-- 📍 Extracts customer locations from ticket data  
-- 🧠 Geocodes addresses using Google Maps API  
-- 🧭 Optimizes travel routes and generates turn-by-turn Google Maps URLs  
-- 🧪 Modular and testable architecture  
+- 🔄 Pulls daily service tickets from BlueFolder
+- 📍 Extracts customer addresses
+- 🌐 Geocodes locations using Google Maps
+- 🧠 Optimizes travel path using Google's Directions API
+- 🗺️ Outputs shareable Google Maps route URLs
+- 🧪 Modular, testable, and extensible structure
 
 ---
 
-## 🛠 Setup
+## 🛠️ Setup
 
-### 1. Clone the repository
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/ARCofMe/daily-routing-extension.git
 cd daily-routing-extension
 ```
 
-### 2. Create a virtual environment
+### 2. Create a Virtual Environment
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+source venv/bin/activate  # On Windows: .env\Scriptsctivate
 ```
 
-### 3. Install dependencies
+### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment variables
-Create a `.env` file in the project root with the following:
+### 4. Configure Environment Variables
+
+Create a `.env` file in the root with the following contents:
 ```env
 GOOGLE_MAPS_API_KEY=your_google_maps_api_key
 BLUEFOLDER_API_KEY=your_bluefolder_api_key
-BLUEFOLDER_ACCOUNT_NAME=your_bluefolder_subdomain  # e.g. yourcompany if URL is yourcompany.bluefolder.com
+BLUEFOLDER_ACCOUNT_NAME=your_subdomain  # e.g. arcme if arcme.bluefolder.com
 ```
 
 ---
 
 ## 🧪 Testing
 
-Run the test script to verify setup:
+You can validate the core routing logic using:
 ```bash
-python test_routing.py
+python test_google.py
 ```
 
-This will print the optimized address order and a shareable Google Maps route URL.
+This will:
+- Sort a sample list of addresses
+- Print the optimized route
+- Output a clickable Google Maps URL
 
 ---
 
-## 📁 File Structure
+## 🖥️ CLI Usage
+
+To run the tool from the command line:
+```bash
+python main.py "123 Main St, Hebron ME" "55 Elm St, Auburn ME" "40 Mechanic Falls, ME"
+```
+
+It will:
+- Fetch an optimized route from Google Maps
+- Return a link to view the turn-by-turn navigation
+
+---
+
+## 🧱 Project Structure
 
 ```bash
-├── bluefolder_api.py       # BlueFolder API wrapper
-├── routing.py              # Geocoding + route optimization logic
-├── test_routing.py         # Test file for validating routing output
+├── config.py             # Route config settings
+├── main.py               # CLI entry point
+├── routing.py            # Geocoding + optimization logic
+├── test_google.py        # Sample unit test
+├── .env                  # API credentials (not committed)
 ├── requirements.txt
-├── .env
 └── README.md
 ```
 
@@ -71,13 +89,28 @@ This will print the optimized address order and a shareable Google Maps route UR
 
 ## ✅ TODO
 
-- [ ] Support multiple technicians  
-- [ ] Add time-window-based scheduling  
-- [ ] Integrate Google Calendar sync  
-- [ ] Add error logging and dashboard output  
+- [ ] Support for multiple techs/routes
+- [ ] Add technician availability calendar
+- [ ] Schedule-aware routing (time windows, service length)
+- [ ] Logging and dashboard display of route metrics
+- [ ] Export routes to calendar/CSV
+- [ ] Include BlueFolder integration for live ticket pulling
 
 ---
 
 ## 📄 License
 
 MIT License — see `LICENSE` file.
+
+---
+
+## 🤝 Contributing
+
+PRs are welcome. Please fork the repo, make changes on a feature branch, and open a pull request.
+
+---
+
+## 📬 Contact
+
+Questions, feature requests, or issues?  
+Feel free to reach out via GitHub or open an issue in the repo.
