@@ -1,4 +1,4 @@
-# 🗺️ Daily Routing Extension
+# 🗺️ Optimized Routing Extension
 
 This extension generates optimized daily service routes using the BlueFolder API and Google Maps Directions API.  
 It streamlines technician dispatching by building turn-by-turn routes from service ticket addresses.
@@ -20,8 +20,8 @@ It streamlines technician dispatching by building turn-by-turn routes from servi
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/ARCofMe/daily-routing-extension.git
-cd daily-routing-extension
+git clone https://github.com/ARCofMe/optimized-routing-extension.git
+cd optimized-routing-extension
 ```
 
 ### 2. Create a Virtual Environment
