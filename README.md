@@ -52,6 +52,7 @@ You can validate the core routing logic using:
 ```bash
 python test_google.py
 ```
+![Animated gif](docs/images/readme_cli_example.png "Animation that shows auto completion")
 
 This will:
 - Sort a sample list of addresses
