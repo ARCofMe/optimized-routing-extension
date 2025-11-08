@@ -8,6 +8,8 @@ import googlemaps
 from dotenv import load_dotenv
 from urllib.parse import urlencode, quote_plus
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from utils.cache_manager import CacheManager
 from config import RouteConfig
 from .base import BaseRoutingManager, RouteStop
 
@@ -15,6 +17,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+route_cache = CacheManager("routes", ttl_minutes=60)  # cache per day/hour
 
 class GoogleMapsRoutingManager(BaseRoutingManager):
     """Builds a Google Maps directions URL with ordered waypoints."""
@@ -34,41 +37,17 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2))
     def get_optimized_route(self, addresses, config: RouteConfig = RouteConfig()):
         """
-        Generate an optimized route order using the Google Maps Directions API.
-
-        This function determines the most efficient sequence of waypoints for
-        a given list of addresses. It optionally includes a fixed start and/or
-        end location based on the provided RouteConfig. The request is retried
-        up to three times with exponential backoff if transient API errors occur.
-
-        Args:
-            addresses (List[str]):
-                A list of address strings representing route stops to be optimized.
-            config (RouteConfig, optional):
-                A configuration object specifying a custom start and/or end
-                location. If not provided, the first address is treated as the
-                origin and the last as the destination.
-
-        Returns:
-            dict: A dictionary containing:
-                - **origin** (str): The starting address.
-                - **destination** (str): The final address.
-                - **waypoints** (List[str]): Ordered list of intermediate addresses.
-                - **order** (List[int]): The order indices of optimized waypoints
-                relative to the input list.
-
-        Raises:
-            ValueError: If no addresses are provided.
-            RuntimeError: If the Google Maps API returns no route results.
-
-        Notes:
-            - This method uses exponential backoff retry behavior via the
-            `tenacity` library to handle transient network or API errors.
-            - Waypoint optimization is handled by the Google Maps Directions API.
+        Generate an optimized route order using Google Maps Directions API
+        with caching to minimize API calls.
         """
-
         if len(addresses) < 1:
             raise ValueError("Need at least one job address to optimize.")
+
+        cache_key = f"optimized_{hash(tuple(addresses))}"
+        cached = route_cache.get(cache_key)
+        if cached:
+            logger.info(f"[CACHE] Using cached optimized route ({len(addresses)} stops)")
+            return cached
 
         origin = config.start_location or addresses[0]
         destination = config.end_location or addresses[-1]
@@ -86,18 +65,24 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
         )
 
         if not directions_result:
-            logger.error("No directions returned by API")
             raise RuntimeError("No directions found.")
 
         waypoint_order = directions_result[0]["waypoint_order"]
         sorted_waypoints = [waypoints[i] for i in waypoint_order]
 
-        return {
+        result = {
             "origin": origin,
             "destination": destination,
             "waypoints": sorted_waypoints,
             "order": waypoint_order,
         }
+
+        route_cache.set(cache_key, result)
+        logger.info(f"[CACHE] Saved optimized route with {len(addresses)} stops")
+
+        return result
+
+
 
     def build_route_url(self) -> str:
         groups = self.grouped_stops()
@@ -154,17 +139,18 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2))
     def optimize_within_window(self, stops: list[str], start: str | None = None) -> list[str]:
-        """Optimize order of stops within a given service window using Google Maps Directions API."""
         if not stops or len(stops) <= 1:
-            return stops  # nothing to optimize
+            return stops
+
+        cache_key = ("gmaps_window", tuple(stops))
+        cached = get_cached(*cache_key)
+        if cached:
+            logger.info("[CACHE] Using cached window optimization.")
+            return cached
 
         origin = start or stops[0]
         destination = stops[-1]
-
-        # Avoid sending same address as origin/dest in both params if small list
         waypoints = [addr for addr in stops if addr not in {origin, destination}]
-
-        logger.info(f"Optimizing window from {origin} to {destination} with {len(waypoints)} waypoints")
 
         directions = self.gmaps.directions(
             origin,
@@ -179,4 +165,7 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
 
         order = directions[0]["waypoint_order"]
         sorted_waypoints = [waypoints[i] for i in order]
-        return [origin] + sorted_waypoints + [destination]
+        result = [origin] + sorted_waypoints + [destination]
+
+        set_cached(*cache_key, data=result)
+        return result

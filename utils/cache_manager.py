@@ -1,35 +1,61 @@
 import os
 import json
 import time
-import hashlib
-from pathlib import Path
+import logging
 
-CACHE_DIR = Path("cache")
-CACHE_DIR.mkdir(exist_ok=True)
+logger = logging.getLogger(__name__)
 
-DEFAULT_TTL = 60 * 15  # 15 minutes
+CACHE_DIR = os.path.join(os.path.dirname(__file__), ".cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
 
-def _cache_key(prefix: str, *args, **kwargs) -> str:
-    key_raw = json.dumps({"args": args, "kwargs": kwargs}, sort_keys=True)
-    digest = hashlib.md5(key_raw.encode()).hexdigest()
-    return f"{prefix}_{digest}.json"
+DEFAULT_TTL_MINUTES = 30
 
-def get_cached(prefix: str, *args, ttl: int = DEFAULT_TTL, **kwargs):
-    key = _cache_key(prefix, *args, **kwargs)
-    path = CACHE_DIR / key
-    if not path.exists():
-        return None
 
-    if time.time() - path.stat().st_mtime > ttl:
-        path.unlink(missing_ok=True)
-        return None
+class CacheManager:
+    """Generic key–value cache with in-memory and disk persistence."""
 
-    with open(path, "r") as f:
-        return json.load(f)
+    def __init__(self, name: str, ttl_minutes: int = DEFAULT_TTL_MINUTES):
+        self.name = name
+        self.ttl = ttl_minutes * 60
+        self.file_path = os.path.join(CACHE_DIR, f"{name}.json")
+        self.data = self._load()
 
-def set_cached(prefix: str, data, *args, **kwargs):
-    key = _cache_key(prefix, *args, **kwargs)
-    path = CACHE_DIR / key
-    with open(path, "w") as f:
-        json.dump(data, f)
-    return path
+    def _load(self):
+        if not os.path.exists(self.file_path):
+            return {}
+        try:
+            with open(self.file_path, "r") as f:
+                raw = json.load(f)
+                return raw.get("data", {})
+        except Exception as e:
+            logger.warning(f"[CACHE] failed to load {self.name}: {e}")
+            return {}
+
+    def _save(self):
+        try:
+            with open(self.file_path, "w") as f:
+                json.dump({"data": self.data, "timestamp": time.time()}, f, indent=2)
+        except Exception as e:
+            logger.warning(f"[CACHE] failed to save {self.name}: {e}")
+
+    def get(self, key):
+        """Retrieve a cached value if not expired."""
+        entry = self.data.get(str(key))
+        if not entry:
+            return None
+        ts, value = entry
+        if time.time() - ts > self.ttl:
+            del self.data[str(key)]
+            return None
+        return value
+
+    def set(self, key, value):
+        """Store a value and persist to disk."""
+        self.data[str(key)] = (time.time(), value)
+        self._save()
+
+    def clear(self):
+        self.data = {}
+        if os.path.exists(self.file_path):
+            os.remove(self.file_path)
+        logger.info(f"[CACHE] Cleared {self.name}")
