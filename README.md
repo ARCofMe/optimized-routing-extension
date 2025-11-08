@@ -1,117 +1,122 @@
-# 🗺️ Optimized Routing Extension
+# Optimized Routing Extension
 
-This extension generates optimized daily service routes using the BlueFolder API and Google Maps Directions API.  
-It streamlines technician dispatching by building turn-by-turn routes from service ticket addresses.
+A Python integration for **BlueFolder** service management that generates optimized
+**Google Maps routes** for technicians based on their daily assignments.
 
 ---
 
 ## 🚀 Features
 
-- 🔄 Pulls daily service tickets from BlueFolder
-- 📍 Extracts customer addresses
-- 🌐 Geocodes locations using Google Maps
-- 🧠 Optimizes travel path using Google's Directions API
-- 🗺️ Outputs shareable Google Maps route URLs
-- 🧪 Modular, testable, and extensible structure
+- 🔗 BlueFolder API integration (Assignments, Customers, Locations)
+- 🗺️ Google Maps optimization with deduplication + caching
+- ⚡ Parallel enrichment and persistent caching to reduce API usage
+- 🧰 CLI and test utility for per-technician route generation
+- 🧠 Modular structure (extendable for automation and new API domains)
 
 ---
 
-## 🛠️ Setup
+## ⚙️ Setup
 
-### 1. Clone the Repository
+### 1. Clone & Install Dependencies
+
 ```bash
-git clone https://github.com/ARCofMe/optimized-routing-extension.git
+git clone https://github.com/yourusername/optimized-routing-extension.git
 cd optimized-routing-extension
-```
-
-### 2. Create a Virtual Environment
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: .env\Scriptsctivate
-```
-
-### 3. Install Dependencies
-```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+### 2. Environment Configuration
 
-Create a `.env` file in the root with the following contents:
-```env
-GOOGLE_MAPS_API_KEY=your_google_maps_api_key
-BLUEFOLDER_API_KEY=your_bluefolder_api_key
-BLUEFOLDER_ACCOUNT_NAME=your_subdomain  # e.g. arcme if arcme.bluefolder.com
+Copy the example environment file and populate it with your credentials:
+
+```bash
+cp .env.example .env
+```
+
+Fill in the following keys:
+
+```
+BLUEFOLDER_API_KEY=your_api_key_here
+BLUEFOLDER_ACCOUNT_NAME=your_account_name_here
+GOOGLE_MAPS_API_KEY=your_google_maps_key_here
 ```
 
 ---
 
-## 🧪 Testing
+## 🧪 Usage Example
 
-You can validate the core routing logic using:
 ```bash
-python test_google.py
+python test_route_optimizer.py
 ```
-![Animated gif](docs/images/readme_cli_example.png "Animation that shows auto completion")
 
-This will:
-- Sort a sample list of addresses
-- Print the optimized route
-- Output a clickable Google Maps URL
+Example output:
+
+```
+=== Generating optimized Google Maps route for user 33553227 ===
+[ROUTING] Deduplicated 8 redundant stops → 1 unique locations.
+Google Maps Route:
+https://www.google.com/maps/dir/180+E+Hebron+Rd%2C+Hebron%2C+ME%2C+04238/164+NEW+COUNTY+RD,+Thomaston,+ME/180+E+Hebron+Rd,+Hebron,+ME
+```
 
 ---
 
-## 🖥️ CLI Usage
+## 🗂️ Project Structure
 
-To run the tool from the command line:
-```bash
-python main.py "123 Main St, Hebron ME" "55 Elm St, Auburn ME" "40 Mechanic Falls, ME"
 ```
-
-It will:
-- Fetch an optimized route from Google Maps
-- Return a link to view the turn-by-turn navigation
-
----
-
-## 🧱 Project Structure
-
-```bash
-├── config.py             # Route config settings
-├── main.py               # CLI entry point
-├── routing.py            # Geocoding + optimization logic
-├── test_google.py        # Sample unit test
-├── .env                  # API credentials (not committed)
+optimized-routing-extension/
+│
+├── bluefolder_api/
+│   ├── base.py
+│   ├── client.py
+│   ├── customers.py
+│   ├── customer_locations.py
+│   ├── assignments.py
+│   ├── appointments.py
+│   ├── users.py
+│   └── ...
+│
+├── manager/
+│   ├── base.py
+│   ├── google_manager.py
+│
+├── utils/
+│   ├── cache_manager.py
+│
+├── routing.py
+├── bluefolder_integration.py
+├── test_route_optimizer.py
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## ✅ TODO
+## 🧹 Linting & Formatting
 
-- [ ] Support for multiple techs/routes
-- [ ] Add technician availability calendar
-- [ ] Schedule-aware routing (time windows, service length)
-- [ ] Logging and dashboard display of route metrics
-- [ ] Export routes to calendar/CSV
-- [ ] Include BlueFolder integration for live ticket pulling
+Keep your codebase consistent and readable:
 
----
-
-## 📄 License
-
-MIT License — see `LICENSE` file.
+```bash
+pip install black isort
+black .
+isort .
+```
 
 ---
 
-## 🤝 Contributing
+## 🛣️ Roadmap
 
-PRs are welcome. Please fork the repo, make changes on a feature branch, and open a pull request.
+| Feature | Status |
+|----------|---------|
+| BlueFolder API integration | ✅ |
+| Google Maps Routing | ✅ |
+| Deduplication of stops | ✅ |
+| Persistent caching | ✅ |
+| CLI Route Generator | 🧩 Planned |
+| Fuzzy address matching | 🧩 Planned |
+| Route summary export (CSV/PDF) | 🧩 Planned |
 
 ---
 
-## 📬 Contact
+## 🧾 License
 
-Questions, feature requests, or issues?  
-Feel free to reach out via GitHub or open an issue in the repo.
+MIT License © 2025 — Developed by [Your Name / Team]
