@@ -6,6 +6,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import List
+from collections import defaultdict
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ServiceWindow(Enum):
@@ -19,7 +23,7 @@ class RouteStop:
     address: str
     window: ServiceWindow
     label: str | None = None  # e.g. ticket number, customer last name
-
+    job_count: int = 1
 
 @dataclass(slots=True)
 class BaseRoutingManager(ABC):
@@ -60,3 +64,46 @@ class BaseRoutingManager(ABC):
         for stop in self.ordered_stops():
             groups[stop.window].append(stop)
         return [groups[w] for w in [ServiceWindow.AM, ServiceWindow.ALL_DAY, ServiceWindow.PM] if groups[w]]
+    
+    def deduplicate_stops(self) -> list[RouteStop]:
+        """
+        Combine stops with identical addresses (case-insensitive).
+        - Keeps the earliest service window among duplicates.
+        - Combines labels and increments job_count.
+        - Returns a list of unique RouteStop instances.
+        """
+        grouped = defaultdict(list)
+
+        # Group stops by normalized address
+        for stop in self.stops:
+            key = stop.address.strip().lower()
+            grouped[key].append(stop)
+
+        unique_stops = []
+        for key, stops in grouped.items():
+            if len(stops) == 1:
+                unique_stops.append(stops[0])
+                continue
+
+            # Combine duplicates
+            base = stops[0]
+            combined_labels = [s.label for s in stops if s.label]
+            base.label = ", ".join(combined_labels) if combined_labels else base.label
+            base.job_count = len(stops)
+
+            # Earliest window priority (AM < ALL_DAY < PM)
+            window_priority = {ServiceWindow.AM: 0, ServiceWindow.ALL_DAY: 1, ServiceWindow.PM: 2}
+            base.window = min(stops, key=lambda s: window_priority[s.window]).window
+
+            # Append label annotation for visibility
+            base.label = f"{base.label or 'Jobs'} ({base.job_count} jobs)"
+
+            unique_stops.append(base)
+
+        if len(unique_stops) != len(self.stops):
+            logger.info(
+                f"[ROUTING] Deduplicated {len(self.stops) - len(unique_stops)} redundant stops "
+                f"→ {len(unique_stops)} unique locations."
+            )
+
+        return unique_stops

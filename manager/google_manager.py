@@ -85,6 +85,10 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
 
 
     def build_route_url(self) -> str:
+        # Deduplicate before ordering
+        unique_stops = self.deduplicate_stops()
+        self.stops = unique_stops  # replace in case other methods reuse it
+
         groups = self.grouped_stops()
         if not groups:
             raise ValueError("No stops to route to")
