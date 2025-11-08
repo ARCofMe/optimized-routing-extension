@@ -19,12 +19,17 @@ logger = logging.getLogger(__name__)
 class GoogleMapsRoutingManager(BaseRoutingManager):
     """Builds a Google Maps directions URL with ordered waypoints."""
 
-    def init(self):
+    def __init(self, origin: str, **kwargs):
+        super().__init__(origin, **kwargs)
         self.GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
         if not self.GOOGLE_MAPS_API_KEY:
             raise ValueError("GOOGLE_MAPS_API_KEY is not set in the environment.")
 
         self.gmaps = googlemaps.Client(key=self.GOOGLE_MAPS_API_KEY)
+        
+        self.mode: str = "driving"
+        self.avoid: str = None
+        self.use_query_string: bool = False
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2))
     def get_optimized_route(self, addresses, config: RouteConfig = RouteConfig()):
@@ -95,39 +100,39 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
         }
 
     def build_route_url(self) -> str:
-        ordered = self.ordered_stops()
-        if not ordered:
+        groups = self.grouped_stops()
+        if not groups:
             raise ValueError("No stops to route to")
 
+        # flatten sequence but link between groups
+        all_stops = []
+        for i, group in enumerate(groups):
+            if i > 0:
+                # start this window at the last stop from the previous window
+                all_stops.append(groups[i-1][-1])
+            all_stops.extend(group)
+
         origin = self.origin
-        destination = self.origin if self.end_at_origin else ordered[-1].address
-        waypoints = [s.address for s in ordered]
-        if not self.end_at_origin and waypoints:
-            waypoints = waypoints[:-1]  # last is destination
+        destination = self.origin if self.end_at_origin else all_stops[-1].address
+        waypoints = [s.address for s in all_stops]
 
         params = {
-            #            "api": "1",
             "origin": origin,
             "destination": destination,
         }
 
         if self.useQueryStringInURL():
-            params = {
-                "origin": origin,
-                "destination": destination,
-                "travelmode": self.mode,
-            }
-            if waypoints:
-                params["waypoints"] = "|".join(waypoints)
-            if self.avoid:
-                params["avoid"] = self.avoid
+            params["travelmode"] = self.getMode()
+            params["waypoints"] = "|".join(waypoints)
+            if self.getAvoid():
+                params["avoid"] = self.getAvoid()
             query_string = urlencode(params, quote_via=quote_plus)
             return f"https://www.google.com/maps/dir/?{query_string}"
-        else:
-            # Path-based version for simplicity/sharing
-            full_route = [origin] + waypoints + [destination]
-            encoded = [quote_plus(addr) for addr in full_route]
-            return f"https://www.google.com/maps/dir/" + "/".join(encoded)
+
+        full_route = [origin] + [s.address for s in all_stops] + [destination]
+        encoded = [quote_plus(addr) for addr in full_route]
+        return f"https://www.google.com/maps/dir/" + "/".join(encoded)
+
 
     def setMode(self, mode: str = "driving"):
         self.mode = mode
@@ -135,14 +140,43 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
     def getMode(self) -> str:
         return self.mode or "driving"
 
-    def setAvoid(self, avoid: str = None):
+    def setAvoid(self, avoid: str = ""):
         self.avoid = avoid
 
-    def getAvoid(self) -> str:
+    def getAvoid(self) -> str|None:
         return self.avoid or None
 
     def setUseQueryStringInURL(self, use_qs: bool = False):
         self.use_query_string = use_qs
 
     def useQueryStringInURL(self) -> bool:
-        return self.use_query_string or False
+        return getattr(self, "use_query_string", False)
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2))
+    def optimize_within_window(self, stops: list[str], start: str | None = None) -> list[str]:
+        """Optimize order of stops within a given service window using Google Maps Directions API."""
+        if not stops or len(stops) <= 1:
+            return stops  # nothing to optimize
+
+        origin = start or stops[0]
+        destination = stops[-1]
+
+        # Avoid sending same address as origin/dest in both params if small list
+        waypoints = [addr for addr in stops if addr not in {origin, destination}]
+
+        logger.info(f"Optimizing window from {origin} to {destination} with {len(waypoints)} waypoints")
+
+        directions = self.gmaps.directions(
+            origin,
+            destination,
+            waypoints=waypoints,
+            optimize_waypoints=True,
+        )
+
+        if not directions:
+            logger.warning("No route returned from optimization, preserving given order.")
+            return stops
+
+        order = directions[0]["waypoint_order"]
+        sorted_waypoints = [waypoints[i] for i in order]
+        return [origin] + sorted_waypoints + [destination]

@@ -53,3 +53,10 @@ class BaseRoutingManager(ABC):
             ServiceWindow.PM: 2,
         }
         return sorted(self.stops, key=lambda s: priority[s.window])
+
+    def grouped_stops(self):
+        """Group stops by service window (AM → PM → ALL_DAY)."""
+        groups = {ServiceWindow.AM: [], ServiceWindow.PM: [], ServiceWindow.ALL_DAY: []}
+        for stop in self.ordered_stops():
+            groups[stop.window].append(stop)
+        return [groups[w] for w in [ServiceWindow.AM, ServiceWindow.ALL_DAY, ServiceWindow.PM] if groups[w]]
