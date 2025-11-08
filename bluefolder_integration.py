@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from utils.cache_manager import get_cached, set_cached
 from bluefolder_api.client import BlueFolderClient
 
 class BlueFolderIntegration:
@@ -6,6 +7,11 @@ class BlueFolderIntegration:
         self.client = BlueFolderClient()
 
     def get_user_appointments_today(self, user_id: int):
+        cache_key = (user_id, date.today().isoformat())
+        cached = get_cached("appointments", *cache_key)
+        if cached:
+            print("Using cached appointments.")
+            return cached
         appts = self.client.appointments.get_appointments_for_routing(user_id)
         enriched = []
 
@@ -26,11 +32,13 @@ class BlueFolderIntegration:
             appt.update({
                 "address": loc.get("addressStreet", ""),
                 "city": loc.get("addressCity", ""),
-                "state": loc.get("AddressState", ""),
-                "zip": loc.get("zaddressPostalCode", ""),
+                "state": loc.get("addressState", ""),
+                "zip": loc.get("addressPostalCode", ""),
             })
             enriched.append(appt)
 
+        # Save to cache
+        set_cached("appointments", enriched, *cache_key)
         return enriched
 
     def get_user_service_requests_today(
@@ -42,20 +50,30 @@ class BlueFolderIntegration:
     ):
         """Get all service requests for a user for today's schedule (or a custom date range)."""
 
+        today = date.today()
+        cache_key = (user_id, today.isoformat())
+        cached = get_cached("service_requests", *cache_key)
+        if cached:
+            print("Using cached service requests.")
+            return cached
+
         # Default to today in BlueFolder format if no range passed
         if not start_date or not end_date:
-            today = date.today()
             start_date = today.strftime("%Y.%m.%d 12:00 AM")
             end_date = today.strftime("%Y.%m.%d 11:59 PM")
             
         print(f"Using date range: {start_date} → {end_date}")
 
-        return self.client.service_requests.list_for_user_range(
+        result = self.client.service_requests.list_for_user_range(
             user_id=user_id,
             start_date=start_date,
             end_date=end_date,
             date_range_type=date_field,
         )
+        # Cache it
+        set_cached("service_requests", result, *cache_key)
+
+        return result
         
     def get_all_service_requests_today(self, date_field="dateTimeScheduled"):
         today = date.today()
@@ -69,22 +87,15 @@ class BlueFolderIntegration:
             end_date=end_date,
             date_field=date_field,
         )
-
-    def get_user_assignments_today(self, user_id: int):
-        today = date.today().strftime("%Y.%m.%d")
-        start_date = f"{today} 12:00 AM"
-        end_date = f"{today} 11:59 PM"
-        print(f"Using date range: {start_date} → {end_date}")
-
-        return self.client.assignments.list_for_user_range(
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            date_range_type="scheduled",
-        )
         
     def get_user_assignments_today(self, user_id: int):
         today = date.today().strftime("%Y.%m.%d")
+        cache_key = (user_id, today)
+        cached = get_cached("assignments", *cache_key)
+        if cached:
+            print("Using cached assignments.")
+            return cached
+        
         start_date = f"{today} 12:00 AM"
         end_date   = f"{today} 11:59 PM"
         print(f"Using date range: {start_date} → {end_date}")
@@ -137,4 +148,7 @@ class BlueFolderIntegration:
                 "isComplete": a["isComplete"]
             })
 
+        # Save enriched results
+        set_cached("assignments", enriched, *cache_key)
+        
         return enriched
