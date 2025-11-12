@@ -1,0 +1,7 @@
+services:
+  - type: cron
+    name: bluefolder-route-optimizer
+    env: python
+    schedule: "0 6 * * *"   # daily at 6 AM UTC
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"

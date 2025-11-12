@@ -1,41 +1,59 @@
 """
-Command-line interface for optimizing daily job routes using Google Maps.
+main.py
+Daily orchestration entry point for the Optimized Routing Extension.
 
-This script accepts a list of addresses (job locations) as command-line arguments,
-calculates the most efficient route using the Google Maps Directions API, and outputs
-a sharable Google Maps URL with the optimized order of stops.
-
-Example:
-    python main.py "123 Main St, City, ST" "456 Elm St, City, ST" "789 Oak St, City, ST"
+- Iterates over all active technicians.
+- Uses routing.generate_google_route() to get optimized route URLs.
+- Updates each technician's BlueFolder record with the generated link.
 """
 
-import argparse
-from routing import get_optimized_route, build_google_maps_url
+import logging
+from datetime import datetime
+from bluefolder_integration import BlueFolderIntegration
+from routing import generate_google_route
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def main():
+def run_daily_routing():
     """
-    Parses command-line arguments, optimizes the job route, and prints a Google Maps URL.
-
-    Uses the Google Maps Directions API to determine the most efficient route between
-    multiple job locations. The output is a shareable URL that opens Google Maps
-    with the route preloaded.
-
-    Raises:
-        ValueError: If fewer than one address is provided.
-        RuntimeError: If the directions API fails to return a valid route.
+    Pull all active BlueFolder users, generate optimized routes,
+    and push route URLs into their BlueFolder custom field.
     """
-    parser = argparse.ArgumentParser(description="Daily route optimizer")
-    parser.add_argument("addresses", nargs="+", help="List of job addresses")
-    args = parser.parse_args()
+    logger.info(f"[START] Route generation job started at {datetime.now()}")
+    bf = BlueFolderIntegration()
 
-    route = get_optimized_route(args.addresses)
-    url = build_google_maps_url(
-        route["origin"], route["destination"], route["waypoints"]
-    )
+    users = bf.get_active_users()  # assumes you have this method
+    if not users:
+        logger.warning("No active users found.")
+        return
 
-    print("\U0001F697 Optimized Google Maps URL:\n", url)
+    for user in users:
+        user_id = user.get("id")
+        user_name = f"{user.get("firstName")} {user.get("lastName", "Unknown")}"
+        logger.info(f"Processing routes for {user_name} (User ID: {user_id})")
+
+        try:
+            route_url = generate_google_route(user_id)
+            if "No assignments" in route_url:
+                logger.info(f"No assignments found for {user_name}.")
+                continue
+
+            # Update the route URL into the technician’s BlueFolder custom field
+            bf.update_user_custom_field(
+                user_id=user_id,
+                field_name="DailyRouteURL",  # matches your BlueFolder custom field
+                field_value=route_url
+            )
+
+            logger.info(f"✅ Updated route for {user_name}: {route_url}")
+
+        except Exception as e:
+            logger.exception(f"❌ Error processing user {user_name}: {e}")
+        logger.info("--------------------------------------------------------------")
+
+    logger.info(f"[END] Route generation job completed at {datetime.now()}")
 
 
 if __name__ == "__main__":
-    main()
+    run_daily_routing()

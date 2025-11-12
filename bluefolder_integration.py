@@ -16,9 +16,14 @@ Dependencies:
 
 from datetime import date, datetime
 import logging
+import os
+from dotenv import load_dotenv
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from bluefolder_api.client import BlueFolderClient
 from utils.cache_manager import CacheManager
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -35,35 +40,26 @@ class BlueFolderIntegration:
         - Technician assignments
         - Service request lookups
         - Appointment retrieval
+        - User management
         - Caching for performance
 
     Attributes:
         client (BlueFolderClient): Active API client instance.
     """
 
-    def __init__(self):
+    def __init__(self, client: BlueFolderClient = None):
         """Initialize the BlueFolder client connection."""
-        self.client = BlueFolderClient()
+        self.client = client or BlueFolderClient()
 
     # -----------------------------------------------------------------------
     # Internal Helpers
     # -----------------------------------------------------------------------
 
     def _enrich_assignment(self, a: dict) -> dict | None:
-        """
-        Enrich a BlueFolder assignment with service request and location data.
-
-        Args:
-            a (dict): Raw assignment object from BlueFolder.
-
-        Returns:
-            dict | None: Enriched assignment data, or None if invalid.
-        """
         sr_id = a.get("serviceRequestId")
         if not sr_id:
             return None
 
-        # --- Retrieve Service Request details ---
         sr_xml = self.client.service_requests.get_by_id(sr_id)
         sr = sr_xml.find(".//serviceRequest")
         if sr is None:
@@ -73,7 +69,6 @@ class BlueFolderIntegration:
         loc_id = sr.findtext("customerLocationId") or customer_id
         subject = sr.findtext("subject") or sr.findtext("description") or "Unlabeled SR"
 
-        # --- Retrieve Location details ---
         address = city = state = zip_code = None
         if loc_id:
             loc_data = self.client.customers.get_location_by_id(loc_id)
@@ -109,28 +104,15 @@ class BlueFolderIntegration:
     # -----------------------------------------------------------------------
 
     def get_user_assignments_today(self, user_id: int) -> list[dict]:
-        """
-        Retrieve and enrich today's assignments for a specific user.
-
-        Adds caching for both service requests and customer locations to minimize API calls.
-
-        Args:
-            user_id (int): BlueFolder user ID.
-
-        Returns:
-            list[dict]: Enriched assignment data.
-        """
         today = date.today().strftime("%Y.%m.%d")
         start_date = f"{today} 12:00 AM"
         end_date = f"{today} 11:59 PM"
 
         logger.info(f"Fetching BlueFolder assignments {start_date} → {end_date}")
 
-        # Initialize cache layers
         sr_cache = CacheManager("service_requests", ttl_minutes=60)
         loc_cache = CacheManager("locations", ttl_minutes=120)
 
-        # Fetch assignments
         assignments = self.client.assignments.list_for_user_range(
             user_id=user_id,
             start_date=start_date,
@@ -139,20 +121,17 @@ class BlueFolderIntegration:
         )
 
         enriched = []
-
         for a in assignments:
             sr_id = a.get("serviceRequestId")
             if not sr_id:
                 continue
 
-            # --- 1️⃣ Service Request (cache-aware) ---
             sr_data = sr_cache.get(sr_id)
             if not sr_data:
                 sr_xml = self.client.service_requests.get_by_id(sr_id)
                 sr = sr_xml.find(".//serviceRequest")
                 if sr is None:
                     continue
-
                 sr_data = {
                     "customerId": sr.findtext("customerId"),
                     "locationId": sr.findtext("customerLocationId"),
@@ -164,10 +143,7 @@ class BlueFolderIntegration:
                     ),
                 }
                 sr_cache.set(sr_id, sr_data)
-            else:
-                logger.debug(f"[CACHE] hit: serviceRequest {sr_id}")
 
-            # --- 2️⃣ Location (cache-aware) ---
             customer_id = sr_data.get("customerId")
             location_id = sr_data.get("locationId")
             loc_key = f"{customer_id}:{location_id}"
@@ -187,8 +163,6 @@ class BlueFolderIntegration:
                         loc_cache.set(loc_key, loc_data)
                 except Exception as e:
                     logger.warning(f"[CACHE] location fetch failed for {loc_key}: {e}")
-            else:
-                logger.debug(f"[CACHE] hit: location {loc_key}")
 
             enriched.append({
                 "assignmentId": a.get("assignmentId"),
@@ -207,112 +181,94 @@ class BlueFolderIntegration:
         return enriched
 
     # -----------------------------------------------------------------------
-    # Service Request Retrieval
+    # User Management
     # -----------------------------------------------------------------------
 
-    def get_user_service_requests_today(self, user_id: int, date_field="dateTimeScheduled") -> list[dict]:
+    def get_users(self, full: bool = False):
         """
-        Retrieve all service requests for a specific user today.
-
-        Args:
-            user_id (int): BlueFolder user ID.
-            date_field (str): Date field to filter on (default: 'dateTimeScheduled').
-
-        Returns:
-            list[dict]: List of service requests.
+        Retrieve all users from BlueFolder.
+        The SDK only supports the basic user list (id, names, etc.).
+        The 'full' flag is ignored here for compatibility.
         """
-        today = date.today()
-        start_date = today.strftime("%Y.%m.%d 12:00 AM")
-        end_date = today.strftime("%Y.%m.%d 11:59 PM")
+        try:
+            users = self.client.users.list_all()
+            logger.info(f"[USERS] Retrieved {len(users)} users (basic list).")
+            return users
+        except Exception as e:
+            logger.exception(f"[USERS] Failed to retrieve user list: {e}")
+            return []
 
-        sr_cache = CacheManager("service_requests", ttl_minutes=60)
-        cache_key = f"{user_id}:{today.isoformat()}"
-
-        cached = sr_cache.get(cache_key)
-        if cached:
-            logger.debug(f"[CACHE] hit: service_requests for {user_id}")
-            return cached
-
-        result = self.client.service_requests.list_for_user_range(
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            date_range_type=date_field,
-        )
-
-        sr_cache.set(cache_key, result)
-        return result
-
-    # -----------------------------------------------------------------------
-    # Appointment Retrieval
-    # -----------------------------------------------------------------------
-
-    def get_user_appointments_today(self, user_id: int) -> list[dict]:
+    def get_user(self, user_id: int):
         """
-        Retrieve and enrich today's appointments for a given user.
-
-        Args:
-            user_id (int): BlueFolder user ID.
-
-        Returns:
-            list[dict]: Appointment data enriched with address details.
+        Retrieve a single user's record using the SDK.
         """
-        appt_cache = CacheManager("appointments", ttl_minutes=30)
-        cache_key = f"{user_id}:{date.today().isoformat()}"
+        try:
+            user = self.client.users.get_by_id(user_id)
+            if not user:
+                logger.warning(f"[USERS] No user found with ID {user_id}")
+                # 🔍 temporary debug: show what the SDK saw
+                raw = getattr(self.client.users, "last_response", None)
+                if raw is not None:
+                    print("\n----- RAW BlueFolder XML -----\n", raw, "\n-----------------------------\n")
+                return None
 
-        cached = appt_cache.get(cache_key)
-        if cached:
-            logger.debug(f"[CACHE] hit: appointments for {user_id}")
-            return cached
+            logger.info(f"[USERS] Retrieved {user.get('displayName', 'Unknown')} (ID: {user_id})")
+            return user
+        except Exception as e:
+            logger.exception(f"[USERS] Failed to fetch user {user_id}: {e}")
+            return None
 
-        appts = self.client.appointments.get_appointments_for_routing(user_id)
-        enriched = []
-        location_cache = {}
-
-        for appt in appts:
-            customer_id = appt.get("customerId")
-            if not customer_id or customer_id == "0":
-                enriched.append(appt)
-                continue
-
-            if customer_id not in location_cache:
-                locs = self.client.customer_locations.get_by_customer_id(customer_id)
-                location_cache[customer_id] = locs[0] if locs else {}
-
-            loc = location_cache[customer_id]
-            appt.update({
-                "address": loc.get("addressStreet", ""),
-                "city": loc.get("addressCity", ""),
-                "state": loc.get("addressState", ""),
-                "zip": loc.get("addressPostalCode", ""),
-            })
-            enriched.append(appt)
-
-        appt_cache.set(cache_key, enriched)
-        return enriched
-
-    # -----------------------------------------------------------------------
-    # All Service Requests
-    # -----------------------------------------------------------------------
-
-    def get_all_service_requests_today(self, date_field="dateTimeScheduled") -> list[dict]:
+    def edit_user(self, user_id: int, **fields):
         """
-        Retrieve all service requests for all users for the current day.
-
-        Args:
-            date_field (str): BlueFolder field to filter by.
-
-        Returns:
-            list[dict]: List of all service requests for the current day.
+        Edit a BlueFolder user through the SDK’s update() call.
+        Some SDK builds expect the full payload including userId inside the dict.
         """
-        today = date.today()
-        start_date = datetime(today.year, today.month, today.day, 0, 0).strftime("%Y.%m.%d %I:%M %p")
-        end_date = datetime(today.year, today.month, today.day, 23, 59).strftime("%Y.%m.%d %I:%M %p")
+        try:
+            payload = {"userId": user_id}
+            payload.update({k: v for k, v in fields.items() if v is not None})
 
-        logger.info(f"Using date range: {start_date} → {end_date}")
+            logger.info(f"[USERS] Updating user {user_id} with fields: {payload}")
+            result = self.client.users.update(payload)
+            logger.info(f"[USERS] Successfully updated user {user_id}")
+            return result
+        except Exception as e:
+            logger.exception(f"[USERS] Failed to edit user {user_id}: {e}")
+            return None
 
-        return self.client.service_requests.list_for_range(
-            start_date=start_date,
-            end_date=end_date,
-            date_field=date_field,
-        )
+    def get_active_users(self):
+        """Return active users using the client's built-in list_active()."""
+        try:
+            users = self.client.users.list_active()
+            logger.info(f"[USERS] Retrieved {len(users)} active users.")
+            return users
+        except Exception as e:
+            logger.exception(f"[USERS] Failed to fetch active users: {e}")
+            return []
+
+
+
+
+    def update_user_custom_field(self, user_id: int, field_value: str, field_name: str = None):
+        """Update a BlueFolder user's custom field using an env-based or provided field name."""
+        try:
+            # Fallback order: explicit arg → env var → hardcoded default
+            field_name = field_name or os.getenv("CUSTOM_ROUTE_URL_FIELD_NAME", "OptimizedRouteURL")
+
+            payload = {
+                "CustomFields": {
+                    "CustomField": {
+                        "Name": field_name,
+                        "Value": field_value
+                    }
+                },
+                "userId": user_id
+            }
+
+            result = self.client.users.update(params=payload)
+            logger.info(f"[USERS] Updated {field_name} for user {user_id}.")
+            return result
+
+        except Exception as e:
+            logger.exception(f"[USERS] Failed to update custom field for user {user_id}: {e}")
+            return None
+

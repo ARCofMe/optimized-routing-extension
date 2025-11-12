@@ -184,7 +184,7 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
         encoded = [quote_plus(addr) for addr in full_route]
         url = "https://www.google.com/maps/dir/" + "/".join(encoded)
 
-        logger.info(f"[ROUTING] Generated route URL: {url}")
+        logger.debug(f"[ROUTING] Generated route URL: {url}")
         return url
 
     # -----------------------------------------------------------------------
