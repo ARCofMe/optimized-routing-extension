@@ -25,10 +25,13 @@ logger = logging.getLogger(__name__)
 # RATE-LIMIT PROTECTION
 # ======================================================================
 
+
 def bluefolder_safe(fn):
     """Catch BlueFolder 429 responses and retry automatically."""
+
     @wraps(fn)
     def wrapper(*args, **kwargs):
+        """Retry the wrapped SDK call until it succeeds or a non-429 error occurs."""
         while True:
             try:
                 return fn(*args, **kwargs)
@@ -48,20 +51,26 @@ def bluefolder_safe(fn):
                     match = re.search(r"Try again after (.*?Z)", msg)
                     if match:
                         retry_at = match.group(1)
-                        retry_time = datetime.fromisoformat(retry_at.replace("Z", "+00:00"))
+                        retry_time = datetime.fromisoformat(
+                            retry_at.replace("Z", "+00:00")
+                        )
                         wait_seconds = max(
-                            (retry_time - datetime.utcnow()).total_seconds(),
-                            5
+                            (retry_time - datetime.utcnow()).total_seconds(), 5
                         )
                 except Exception:
                     pass
 
-                logger.warning(f"[RATE LIMIT] 429 received; sleeping {wait_seconds:.1f}s…")
+                logger.warning(
+                    f"[RATE LIMIT] 429 received; sleeping {wait_seconds:.1f}s…"
+                )
                 time.sleep(wait_seconds)
 
             except Exception as e:
-                logger.exception(f"[ERROR] BlueFolder operation failed in {fn.__name__}: {e}")
+                logger.exception(
+                    f"[ERROR] BlueFolder operation failed in {fn.__name__}: {e}"
+                )
                 return None
+
     return wrapper
 
 
@@ -69,8 +78,12 @@ def bluefolder_safe(fn):
 # CLASS: BlueFolderIntegration
 # ======================================================================
 
+
 class BlueFolderIntegration:
+    """High level facade around BlueFolder APIs with caching and retries."""
+
     def __init__(self, client: BlueFolderClient = None):
+        """Create the integration wrapper, optionally injecting a client."""
         self.client = client or BlueFolderClient()
 
     # ==================================================================
@@ -79,26 +92,32 @@ class BlueFolderIntegration:
 
     @bluefolder_safe
     def _safe_get_sr(self, sr_id):
+        """Fetch a service request by id with retry handling."""
         return self.client.service_requests.get_by_id(sr_id)
 
     @bluefolder_safe
     def _safe_get_location(self, customer_id, location_id):
+        """Fetch a customer location node while honoring rate limits."""
         return self.client.customers.get_location_by_id(customer_id, location_id)
 
     @bluefolder_safe
     def _safe_assignments_for_user(self, *args, **kwargs):
+        """List assignments for a user across a date range."""
         return self.client.assignments.list_for_user_range(*args, **kwargs)
 
     @bluefolder_safe
     def _safe_users_active(self):
+        """Fetch the active user list via the SDK."""
         return self.client.users.list_active()
 
     @bluefolder_safe
     def _safe_users_all(self):
+        """Fetch the full user list via the SDK."""
         return self.client.users.list_all()
 
     @bluefolder_safe
     def _safe_users_update(self, *args, **kwargs):
+        """Persist an update payload on the Users domain."""
         return self.client.users.update(*args, **kwargs)
 
     # ==================================================================
@@ -106,6 +125,7 @@ class BlueFolderIntegration:
     # ==================================================================
 
     def get_user_assignments_today(self, user_id: int) -> list[dict]:
+        """Return the enriched assignment list for the current day."""
         today = date.today().strftime("%Y.%m.%d")
         start = f"{today} 12:00 AM"
         end = f"{today} 11:59 PM"
@@ -116,10 +136,7 @@ class BlueFolderIntegration:
         loc_cache = CacheManager("locations", ttl_minutes=120)
 
         assignments = self._safe_assignments_for_user(
-            user_id=user_id,
-            start_date=start,
-            end_date=end,
-            date_range_type="scheduled"
+            user_id=user_id, start_date=start, end_date=end, date_range_type="scheduled"
         )
         if not assignments:
             return []
@@ -149,7 +166,7 @@ class BlueFolderIntegration:
                         sr.findtext("description")
                         or sr.findtext("subject")
                         or "Unlabeled Service Request"
-                    )
+                    ),
                 }
                 sr_cache.set(sr_id, sr_data)
 
@@ -172,20 +189,24 @@ class BlueFolderIntegration:
                         }
                         loc_cache.set(loc_key, loc_data)
 
-            enriched.append({
-                "assignmentId": a.get("assignmentId"),
-                "serviceRequestId": sr_id,
-                "subject": sr_data.get("subject"),
-                "address": loc_data.get("address") if loc_data else None,
-                "city": loc_data.get("city") if loc_data else None,
-                "state": loc_data.get("state") if loc_data else None,
-                "zip": loc_data.get("zip") if loc_data else None,
-                "start": a.get("start"),
-                "end": a.get("end"),
-                "isComplete": a.get("isComplete"),
-            })
+            enriched.append(
+                {
+                    "assignmentId": a.get("assignmentId"),
+                    "serviceRequestId": sr_id,
+                    "subject": sr_data.get("subject"),
+                    "address": loc_data.get("address") if loc_data else None,
+                    "city": loc_data.get("city") if loc_data else None,
+                    "state": loc_data.get("state") if loc_data else None,
+                    "zip": loc_data.get("zip") if loc_data else None,
+                    "start": a.get("start"),
+                    "end": a.get("end"),
+                    "isComplete": a.get("isComplete"),
+                }
+            )
 
-        logger.info(f"[CACHE] saved: {len(sr_cache.data)} SRs, {len(loc_cache.data)} locations")
+        logger.info(
+            f"[CACHE] saved: {len(sr_cache.data)} SRs, {len(loc_cache.data)} locations"
+        )
         return enriched
 
     # ==================================================================
@@ -194,6 +215,7 @@ class BlueFolderIntegration:
 
     @bluefolder_safe
     def list_users_full(self) -> list[dict]:
+        """Call the legacy XML endpoint to fetch the authoritative user list."""
         url = f"{self.client.base_url}/users/list.aspx"
         xml_payload = """<request>
             <userList><listType>full</listType></userList>
@@ -211,10 +233,12 @@ class BlueFolderIntegration:
         root = ET.fromstring(resp.text)
         users = []
         for u in root.findall(".//user"):
-            users.append({
-                child.tag: (child.text or "").strip() if child.text else None
-                for child in u
-            })
+            users.append(
+                {
+                    child.tag: (child.text or "").strip() if child.text else None
+                    for child in u
+                }
+            )
 
         logger.info(f"[USERS] listType=full -> {len(users)} users")
         return users
@@ -225,6 +249,7 @@ class BlueFolderIntegration:
 
     @bluefolder_safe
     def _safe_get_user_sdk(self, user_id):
+        """Use the SDK get_by_id helper when it exists."""
         if hasattr(self.client.users, "get_by_id"):
             return self.client.users.get_by_id(str(user_id))
         return None
@@ -242,9 +267,13 @@ class BlueFolderIntegration:
             if hasattr(raw, "find"):
                 node = raw.find(".//user")
                 if node is not None:
-                    return {c.tag: (c.text or "").strip() if c.text else None for c in node}
+                    return {
+                        c.tag: (c.text or "").strip() if c.text else None for c in node
+                    }
                 if raw.tag == "user":
-                    return {c.tag: (c.text or "").strip() if c.text else None for c in raw}
+                    return {
+                        c.tag: (c.text or "").strip() if c.text else None for c in raw
+                    }
             if isinstance(raw, dict):
                 return raw
 
@@ -262,6 +291,7 @@ class BlueFolderIntegration:
     # ==================================================================
 
     def get_active_users(self) -> list[dict]:
+        """Return the list of active users, with fallbacks if the SDK call fails."""
         users = self._safe_users_active()
         if users:
             for u in users:
@@ -283,7 +313,9 @@ class BlueFolderIntegration:
     # CUSTOM FIELD UPDATE
     # ==================================================================
 
-    def update_user_custom_field(self, user_id: int, field_value: str, field_name: str = None):
+    def update_user_custom_field(
+        self, user_id: int, field_value: str, field_name: str = None
+    ):
         """
         Update a BlueFolder user's custom field.
         Matches your SDK signature: update(payload_dict)
@@ -291,19 +323,16 @@ class BlueFolderIntegration:
 
         try:
             # field name = explicit → env → default
-            name = field_name or os.getenv("CUSTOM_ROUTE_URL_FIELD_NAME", "OptimizedRouteURL")
+            name = field_name or os.getenv(
+                "CUSTOM_ROUTE_URL_FIELD_NAME", "OptimizedRouteURL"
+            )
 
             payload = {
                 "userId": user_id,
-                "CustomFields": {
-                    "CustomField": {
-                        "Name": name,
-                        "Value": field_value
-                    }
-                }
+                "CustomFields": {"CustomField": {"Name": name, "Value": field_value}},
             }
 
-            logger.debug(f"[USERS] Sending update payload: {payload}")
+            logger.info(f"[USERS] Sending update payload: {payload}")
 
             # SDK ONLY supports: update(dict)
             result = self._safe_users_update(payload)
@@ -312,15 +341,17 @@ class BlueFolderIntegration:
             return result
 
         except Exception as e:
-            logger.exception(f"[USERS] Failed to update custom field for {user_id}: {e}")
+            logger.exception(
+                f"[USERS] Failed to update custom field for {user_id}: {e}"
+            )
             return None
-
 
     # ==================================================================
     # ORIGIN ADDRESS BUILDER
     # ==================================================================
 
     def get_user_origin_address(self, user_id):
+        """Assemble a user origin address preferring work location over home."""
         u = self.get_user(user_id)
         if not u:
             return None

@@ -10,10 +10,11 @@ Responsibilities:
     - Pass stops to GoogleMapsRoutingManager for optimized routing.
 """
 
+import os
 import logging
 from datetime import datetime
 from typing import List, Optional
-
+import requests
 from bluefolder_integration import BlueFolderIntegration
 from manager.google_manager import GoogleMapsRoutingManager
 from manager.base import RouteStop, ServiceWindow
@@ -22,9 +23,39 @@ from config import RouteConfig
 logger = logging.getLogger(__name__)
 
 
+CF_SHORTENER_URL = os.getenv("CF_SHORTENER_URL")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def shorten_route_url(long_url: str) -> str:
+    """
+    Hit Cloudflare Worker shortener to convert a long Google Maps route URL.
+    Returns short URL, or original URL if anything fails.
+    """
+    if not CF_SHORTENER_URL:
+        logger.warning("[SHORTENER] CF_SHORTENER_URL not set — returning long URL")
+        return long_url
+
+    try:
+        r = requests.post(f"{CF_SHORTENER_URL}/new", json={"url": long_url}, timeout=6)
+        if r.ok:
+            data = r.json()
+            short = data.get("short")
+            if short:
+                logger.info(f"[SHORTENER] Shortened → {short}")
+                return short
+            else:
+                logger.warning("[SHORTENER] Response OK but no 'short' key")
+        else:
+            logger.error(f"[SHORTENER] POST failed: {r.status_code} {r.text}")
+    except Exception as e:
+        logger.exception(f"[SHORTENER] Exception: {e}")
+
+    return long_url
+
 
 def determine_service_window(start_time: str) -> ServiceWindow:
     """
@@ -80,6 +111,7 @@ def bluefolder_to_routestops(assignments: List[dict]) -> List[RouteStop]:
 # ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
+
 
 def generate_google_route(user_id: int, origin_address: Optional[str] = None) -> str:
     """

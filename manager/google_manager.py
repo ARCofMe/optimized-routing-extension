@@ -42,6 +42,7 @@ route_cache = CacheManager("routes", ttl_minutes=60)
 # CLASS: GoogleMapsRoutingManager
 # ---------------------------------------------------------------------------
 
+
 class GoogleMapsRoutingManager(BaseRoutingManager):
     """
     Routing manager for Google Maps.
@@ -78,9 +79,7 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2))
     def get_optimized_route(
-        self,
-        addresses: list[str],
-        config: RouteConfig = RouteConfig()
+        self, addresses: list[str], config: RouteConfig = RouteConfig()
     ) -> dict:
         """
         Generate an optimized stop order using the Google Maps Directions API,
@@ -99,7 +98,9 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
         cache_key = f"optimized_{hash(tuple(addresses))}"
         cached = route_cache.get(cache_key)
         if cached:
-            logger.info(f"[CACHE] Using cached optimized route ({len(addresses)} stops)")
+            logger.info(
+                f"[CACHE] Using cached optimized route ({len(addresses)} stops)"
+            )
             return cached
 
         origin = config.start_location or addresses[0]
@@ -110,7 +111,9 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
             else addresses
         )
 
-        logger.info(f"[GMAPS] Optimizing route → Origin: {origin}, Destination: {destination}")
+        logger.info(
+            f"[GMAPS] Optimizing route → Origin: {origin}, Destination: {destination}"
+        )
 
         directions_result = self.gmaps.directions(
             origin,
@@ -220,7 +223,9 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
     # -----------------------------------------------------------------------
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2))
-    def optimize_within_window(self, stops: list[str], start: str | None = None) -> list[str]:
+    def optimize_within_window(
+        self, stops: list[str], start: str | None = None
+    ) -> list[str]:
         """
         Optimize a subset of stops (e.g., all AM or PM jobs) for better intra-window ordering.
 
@@ -252,7 +257,9 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
         )
 
         if not directions:
-            logger.warning("No route returned from optimization; preserving original order.")
+            logger.warning(
+                "No route returned from optimization; preserving original order."
+            )
             return stops
 
         order = directions[0]["waypoint_order"]

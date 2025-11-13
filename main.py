@@ -1,104 +1,78 @@
-#!/usr/bin/env python3
 """
-Daily Route Updater for BlueFolder
-----------------------------------
-For each active technician:
-    - Fetch today's assignments
-    - Determine their route origin (work > home > default)
-    - Generate optimized Google Maps route URL
-    - Store that URL in their configured custom field
+main.py
 
-Uses:
-    - bluefolder_integration.BlueFolderIntegration
-    - routing.generate_google_route
+Daily routing job runner for BlueFolder → Optimized Google Maps URL
+with Cloudflare shortener integration.
 """
 
 import logging
 from datetime import datetime
-from dotenv import load_dotenv
-import os
-from bluefolder_api.client import BlueFolderClient
-
 from bluefolder_integration import BlueFolderIntegration
-from routing import generate_google_route
+from routing import generate_google_route, shorten_route_url
 
-# -------------------------------------------------------------------
-# Logging Setup
-# -------------------------------------------------------------------
+# Logging setup
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    format="%(asctime)s %(levelname)s:%(name)s:%(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# -------------------------------------------------------------------
-# Environment
-# -------------------------------------------------------------------
-load_dotenv()
 
-DEFAULT_ORIGIN = os.getenv("DEFAULT_ORIGIN", "South Paris, ME")
-CUSTOM_FIELD_NAME = os.getenv("CUSTOM_ROUTE_URL_FIELD_NAME", "OptimizedRouteURL")
-
-
-# -------------------------------------------------------------------
-# Daily Route Processor
-# -------------------------------------------------------------------
 def run_daily_routing():
+    """Main entry point for generating + shortening + updating routes."""
     logger.info("[START] Route generation job started at %s", datetime.now())
 
-    # Initialize API + integration
-    client = BlueFolderClient()
-    bf = BlueFolderIntegration(client)
-
-    # Step 1 — Get active users
+    bf = BlueFolderIntegration()
     users = bf.get_active_users()
+
     if not users:
-        logger.warning("[ABORT] No active users found.")
+        logger.warning("No active users found.")
         return
 
-    logger.info("[USERS] Processing %d active users.", len(users))
+    for user in users:
+        uid = user.get("userId") or user.get("id")
+        name = f"{user.get('firstName', '')} {user.get('lastName', '')}".strip()
 
-    # Step 2 — Process each user
-    for u in users:
-        uid = u.get("userId") or u.get("id")
-        if not uid:
-            logger.warning("Skipping user with missing ID: %s", u)
-            continue
-
-        name = f"{u.get('firstName', '')} {u.get('lastName', '')}".strip()
         logger.info("---- Processing %s (ID: %s) ----", name, uid)
 
-        # Step 3 — Resolve origin address
+        # 1️⃣ Get user address for their origin (work or home)
         origin = bf.get_user_origin_address(uid)
         if origin:
-            logger.info(f"[ORIGIN] Using user-specific origin: {origin}")
+            logger.info("[ORIGIN] Using user-specific origin: %s", origin)
         else:
-            origin = DEFAULT_ORIGIN
-            logger.info(f"[ORIGIN] No work/home address -> using default: {origin}")
+            origin = "61 Portland Rd Gray, ME"
+            logger.info("[ORIGIN] No user origin found — using fallback: %s", origin)
 
-        # Step 4 — Generate route URL
-        route_url = generate_google_route(int(uid), origin_address=origin)
-
-        if "No assignments" in route_url:
-            logger.info(f"[ROUTE] No assignments for {name}. Skipping update.")
+        # 2️⃣ Generate long Google Maps route URL
+        try:
+            route_url = generate_google_route(int(uid), origin_address=origin)
+            logger.info("[ROUTE] Generated URL: %s", route_url)
+        except Exception as e:
+            logger.exception("[ERROR] Failed generating route for user %s: %s", uid, e)
             continue
 
-        logger.info(f"[ROUTE] Generated URL: {route_url}")
+        # 🚫 Skip users with no assignments
+        if not route_url or "No assignments found" in route_url:
+            logger.info("[SKIP] No assignments for %s — skipping update.", name)
+            continue
 
-        # Step 5 — Update custom field
-        bf.update_user_custom_field(
-            int(uid),
-            field_value=route_url,
-            field_name=CUSTOM_FIELD_NAME,
-        )
+        # 3️⃣ Shorten the URL via Cloudflare Worker
+        try:
+            short_url = shorten_route_url(route_url)
+            logger.info("[SHORT] Short URL: %s", short_url)
+        except Exception as e:
+            logger.exception("[ERROR] Failed shortening route URL for %s: %s", uid, e)
+            short_url = route_url  # fallback
 
-        logger.info("[DONE] Updated route for %s", name)
+        # 4️⃣ Update BlueFolder user with shortened URL
+        try:
+            bf.update_user_custom_field(int(uid), short_url)
+            logger.info("[DONE] Updated route for %s", name)
+        except Exception as e:
+            logger.error("[ERROR] Failed updating BF custom field for %s: %s", name, e)
 
-    logger.info("[COMPLETE] Daily route job finished.")
+    logger.info("[FINISHED] Daily routing job complete.")
 
 
-# -------------------------------------------------------------------
-# Entrypoint
-# -------------------------------------------------------------------
 if __name__ == "__main__":
     run_daily_routing()

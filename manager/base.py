@@ -28,16 +28,19 @@ logger = logging.getLogger(__name__)
 # ENUMS
 # ---------------------------------------------------------------------------
 
+
 class ServiceWindow(Enum):
     """Defines technician scheduling windows."""
-    AM = auto()        # 7 AM – 12 PM
-    PM = auto()        # 12 PM – 5 PM
-    ALL_DAY = auto()   # 8 AM – 4 PM
+
+    AM = auto()  # 7 AM – 12 PM
+    PM = auto()  # 12 PM – 5 PM
+    ALL_DAY = auto()  # 8 AM – 4 PM
 
 
 # ---------------------------------------------------------------------------
 # DATA MODELS
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class RouteStop:
@@ -50,6 +53,7 @@ class RouteStop:
         label (str | None): Optional identifier (e.g. ticket number, customer name).
         job_count (int): Number of jobs at this location (after deduplication).
     """
+
     address: str
     window: ServiceWindow
     label: str | None = None
@@ -59,6 +63,7 @@ class RouteStop:
 # ---------------------------------------------------------------------------
 # BASE CLASS
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class BaseRoutingManager(ABC):
