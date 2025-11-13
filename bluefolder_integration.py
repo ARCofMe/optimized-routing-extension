@@ -2,156 +2,166 @@
 bluefolder_integration.py
 
 Integration layer between BlueFolder API and routing extensions.
-
-Responsibilities:
-    - Retrieve technician assignments, service requests, and appointments.
-    - Enrich raw data with location and subject metadata.
-    - Cache service requests and locations to reduce API usage.
-    - Provide clean data for routing and mapping managers.
-
-Dependencies:
-    - bluefolder_api.client.BlueFolderClient
-    - utils.cache_manager.CacheManager
+Rate-limit safe version.
 """
 
 from datetime import date, datetime
 import logging
 import os
-from dotenv import load_dotenv
+import time
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor
+import re
+from functools import wraps
+from dotenv import load_dotenv
+from requests.exceptions import HTTPError
+
 from bluefolder_api.client import BlueFolderClient
 from utils.cache_manager import CacheManager
 
 load_dotenv()
-
 logger = logging.getLogger(__name__)
 
+# ======================================================================
+# RATE-LIMIT PROTECTION
+# ======================================================================
 
-# ---------------------------------------------------------------------------
+def bluefolder_safe(fn):
+    """Catch BlueFolder 429 responses and retry automatically."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        while True:
+            try:
+                return fn(*args, **kwargs)
+
+            except HTTPError as e:
+                response = e.response
+                if not response or response.status_code != 429:
+                    raise
+
+                # Attempt to parse Retry-After timestamp
+                wait_seconds = 10
+                try:
+                    xml = ET.fromstring(response.text)
+                    err = xml.find(".//error")
+                    msg = err.text if err is not None else ""
+
+                    match = re.search(r"Try again after (.*?Z)", msg)
+                    if match:
+                        retry_at = match.group(1)
+                        retry_time = datetime.fromisoformat(retry_at.replace("Z", "+00:00"))
+                        wait_seconds = max(
+                            (retry_time - datetime.utcnow()).total_seconds(),
+                            5
+                        )
+                except Exception:
+                    pass
+
+                logger.warning(f"[RATE LIMIT] 429 received; sleeping {wait_seconds:.1f}s…")
+                time.sleep(wait_seconds)
+
+            except Exception as e:
+                logger.exception(f"[ERROR] BlueFolder operation failed in {fn.__name__}: {e}")
+                return None
+    return wrapper
+
+
+# ======================================================================
 # CLASS: BlueFolderIntegration
-# ---------------------------------------------------------------------------
+# ======================================================================
 
 class BlueFolderIntegration:
-    """
-    Provides a high-level interface for retrieving and enriching BlueFolder data.
-
-    Handles:
-        - Technician assignments
-        - Service request lookups
-        - Appointment retrieval
-        - User management
-        - Caching for performance
-
-    Attributes:
-        client (BlueFolderClient): Active API client instance.
-    """
-
     def __init__(self, client: BlueFolderClient = None):
-        """Initialize the BlueFolder client connection."""
         self.client = client or BlueFolderClient()
 
-    # -----------------------------------------------------------------------
-    # Internal Helpers
-    # -----------------------------------------------------------------------
+    # ==================================================================
+    # SAFE HELPERS WRAPPING ALL SDK CALLS
+    # ==================================================================
 
-    def _enrich_assignment(self, a: dict) -> dict | None:
-        sr_id = a.get("serviceRequestId")
-        if not sr_id:
-            return None
+    @bluefolder_safe
+    def _safe_get_sr(self, sr_id):
+        return self.client.service_requests.get_by_id(sr_id)
 
-        sr_xml = self.client.service_requests.get_by_id(sr_id)
-        sr = sr_xml.find(".//serviceRequest")
-        if sr is None:
-            return None
+    @bluefolder_safe
+    def _safe_get_location(self, customer_id, location_id):
+        return self.client.customers.get_location_by_id(customer_id, location_id)
 
-        customer_id = sr.findtext("customerId")
-        loc_id = sr.findtext("customerLocationId") or customer_id
-        subject = sr.findtext("subject") or sr.findtext("description") or "Unlabeled SR"
+    @bluefolder_safe
+    def _safe_assignments_for_user(self, *args, **kwargs):
+        return self.client.assignments.list_for_user_range(*args, **kwargs)
 
-        address = city = state = zip_code = None
-        if loc_id:
-            loc_data = self.client.customers.get_location_by_id(loc_id)
+    @bluefolder_safe
+    def _safe_users_active(self):
+        return self.client.users.list_active()
 
-            if isinstance(loc_data, dict):
-                address = loc_data.get("address", "")
-                city = loc_data.get("city", "")
-                state = loc_data.get("state", "")
-                zip_code = loc_data.get("zip", "")
-            else:
-                loc = loc_data.find(".//customerLocation")
-                if loc is not None:
-                    address = loc.findtext("addressStreet")
-                    city = loc.findtext("addressCity")
-                    state = loc.findtext("addressState")
-                    zip_code = loc.findtext("addressPostalCode")
+    @bluefolder_safe
+    def _safe_users_all(self):
+        return self.client.users.list_all()
 
-        return {
-            "assignmentId": a.get("assignmentId"),
-            "serviceRequestId": sr_id,
-            "subject": subject,
-            "address": address,
-            "city": city,
-            "state": state,
-            "zip": zip_code,
-            "start": a.get("start"),
-            "end": a.get("end"),
-            "isComplete": a.get("isComplete"),
-        }
+    @bluefolder_safe
+    def _safe_users_update(self, *args, **kwargs):
+        return self.client.users.update(*args, **kwargs)
 
-    # -----------------------------------------------------------------------
-    # Assignment Retrieval
-    # -----------------------------------------------------------------------
+    # ==================================================================
+    # ASSIGNMENTS
+    # ==================================================================
 
     def get_user_assignments_today(self, user_id: int) -> list[dict]:
         today = date.today().strftime("%Y.%m.%d")
-        start_date = f"{today} 12:00 AM"
-        end_date = f"{today} 11:59 PM"
+        start = f"{today} 12:00 AM"
+        end = f"{today} 11:59 PM"
 
-        logger.info(f"Fetching BlueFolder assignments {start_date} → {end_date}")
+        logger.info(f"Fetching assignments {start} → {end}")
 
         sr_cache = CacheManager("service_requests", ttl_minutes=60)
         loc_cache = CacheManager("locations", ttl_minutes=120)
 
-        assignments = self.client.assignments.list_for_user_range(
+        assignments = self._safe_assignments_for_user(
             user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            date_range_type="scheduled",
+            start_date=start,
+            end_date=end,
+            date_range_type="scheduled"
         )
+        if not assignments:
+            return []
 
         enriched = []
+
         for a in assignments:
             sr_id = a.get("serviceRequestId")
             if not sr_id:
                 continue
 
+            # ---- Service Request
             sr_data = sr_cache.get(sr_id)
             if not sr_data:
-                sr_xml = self.client.service_requests.get_by_id(sr_id)
+                sr_xml = self._safe_get_sr(sr_id)
+                if not sr_xml:
+                    continue
+
                 sr = sr_xml.find(".//serviceRequest")
                 if sr is None:
                     continue
+
                 sr_data = {
                     "customerId": sr.findtext("customerId"),
                     "locationId": sr.findtext("customerLocationId"),
                     "subject": (
                         sr.findtext("description")
                         or sr.findtext("subject")
-                        or sr.findtext(".//title")
                         or "Unlabeled Service Request"
-                    ),
+                    )
                 }
                 sr_cache.set(sr_id, sr_data)
 
-            customer_id = sr_data.get("customerId")
-            location_id = sr_data.get("locationId")
-            loc_key = f"{customer_id}:{location_id}"
+            # ---- Location
+            cust = sr_data.get("customerId")
+            loc_id = sr_data.get("locationId")
+            loc_key = f"{cust}:{loc_id}"
             loc_data = loc_cache.get(loc_key)
 
-            if not loc_data and customer_id and location_id:
-                try:
-                    loc_xml = self.client.customers.get_location_by_id(customer_id, location_id)
+            if not loc_data and cust and loc_id:
+                loc_xml = self._safe_get_location(cust, loc_id)
+                if loc_xml:
                     loc = loc_xml.find(".//customerLocation")
                     if loc is not None:
                         loc_data = {
@@ -161,8 +171,6 @@ class BlueFolderIntegration:
                             "zip": loc.findtext("addressPostalCode"),
                         }
                         loc_cache.set(loc_key, loc_data)
-                except Exception as e:
-                    logger.warning(f"[CACHE] location fetch failed for {loc_key}: {e}")
 
             enriched.append({
                 "assignmentId": a.get("assignmentId"),
@@ -180,95 +188,163 @@ class BlueFolderIntegration:
         logger.info(f"[CACHE] saved: {len(sr_cache.data)} SRs, {len(loc_cache.data)} locations")
         return enriched
 
-    # -----------------------------------------------------------------------
-    # User Management
-    # -----------------------------------------------------------------------
+    # ==================================================================
+    # FULL USER LIST (RAW XML) — safe version
+    # ==================================================================
 
-    def get_users(self, full: bool = False):
+    @bluefolder_safe
+    def list_users_full(self) -> list[dict]:
+        url = f"{self.client.base_url}/users/list.aspx"
+        xml_payload = """<request>
+            <userList><listType>full</listType></userList>
+        </request>"""
+
+        resp = self.client.session.post(
+            url,
+            data=xml_payload.encode(),
+            headers={"Content-Type": "application/xml"},
+            auth=(self.client.api_key, "x"),
+            timeout=30,
+        )
+        resp.raise_for_status()
+
+        root = ET.fromstring(resp.text)
+        users = []
+        for u in root.findall(".//user"):
+            users.append({
+                child.tag: (child.text or "").strip() if child.text else None
+                for child in u
+            })
+
+        logger.info(f"[USERS] listType=full -> {len(users)} users")
+        return users
+
+    # ==================================================================
+    # USER LOOKUP
+    # ==================================================================
+
+    @bluefolder_safe
+    def _safe_get_user_sdk(self, user_id):
+        if hasattr(self.client.users, "get_by_id"):
+            return self.client.users.get_by_id(str(user_id))
+        return None
+
+    def get_user(self, user_id):
         """
-        Retrieve all users from BlueFolder.
-        The SDK only supports the basic user list (id, names, etc.).
-        The 'full' flag is ignored here for compatibility.
+        Resilient:
+        1) Try SDK get_by_id
+        2) Fallback to full-list scan
         """
-        try:
-            users = self.client.users.list_all()
-            logger.info(f"[USERS] Retrieved {len(users)} users (basic list).")
+        uid = str(user_id)
+        # --- Try SDK
+        raw = self._safe_get_user_sdk(uid)
+        if raw:
+            if hasattr(raw, "find"):
+                node = raw.find(".//user")
+                if node is not None:
+                    return {c.tag: (c.text or "").strip() if c.text else None for c in node}
+                if raw.tag == "user":
+                    return {c.tag: (c.text or "").strip() if c.text else None for c in raw}
+            if isinstance(raw, dict):
+                return raw
+
+        # --- Fallback
+        full = self.list_users_full()
+        for u in full:
+            if u.get("userId") == uid or u.get("id") == uid:
+                return u
+
+        logger.warning(f"[USERS] No user found with ID {user_id}")
+        return None
+
+    # ==================================================================
+    # ACTIVE USERS
+    # ==================================================================
+
+    def get_active_users(self) -> list[dict]:
+        users = self._safe_users_active()
+        if users:
+            for u in users:
+                if "userId" not in u and "id" in u:
+                    u["userId"] = u["id"]
+            logger.info(f"[USERS] Retrieved {len(users)} active users via SDK.")
             return users
-        except Exception as e:
-            logger.exception(f"[USERS] Failed to retrieve user list: {e}")
-            return []
 
-    def get_user(self, user_id: int):
-        """
-        Retrieve a single user's record using the SDK.
-        """
-        try:
-            user = self.client.users.get_by_id(user_id)
-            if not user:
-                logger.warning(f"[USERS] No user found with ID {user_id}")
-                # 🔍 temporary debug: show what the SDK saw
-                raw = getattr(self.client.users, "last_response", None)
-                if raw is not None:
-                    print("\n----- RAW BlueFolder XML -----\n", raw, "\n-----------------------------\n")
-                return None
+        # fallback
+        full = self.list_users_full()
+        actives = [u for u in full if u.get("inactive") in ("0", None, "", "false")]
+        for u in actives:
+            if "userId" not in u and "id" in u:
+                u["userId"] = u["id"]
+        logger.info(f"[USERS] Retrieved {len(actives)} active users (fallback).")
+        return actives
 
-            logger.info(f"[USERS] Retrieved {user.get('displayName', 'Unknown')} (ID: {user_id})")
-            return user
-        except Exception as e:
-            logger.exception(f"[USERS] Failed to fetch user {user_id}: {e}")
-            return None
-
-    def edit_user(self, user_id: int, **fields):
-        """
-        Edit a BlueFolder user through the SDK’s update() call.
-        Some SDK builds expect the full payload including userId inside the dict.
-        """
-        try:
-            payload = {"userId": user_id}
-            payload.update({k: v for k, v in fields.items() if v is not None})
-
-            logger.info(f"[USERS] Updating user {user_id} with fields: {payload}")
-            result = self.client.users.update(payload)
-            logger.info(f"[USERS] Successfully updated user {user_id}")
-            return result
-        except Exception as e:
-            logger.exception(f"[USERS] Failed to edit user {user_id}: {e}")
-            return None
-
-    def get_active_users(self):
-        """Return active users using the client's built-in list_active()."""
-        try:
-            users = self.client.users.list_active()
-            logger.info(f"[USERS] Retrieved {len(users)} active users.")
-            return users
-        except Exception as e:
-            logger.exception(f"[USERS] Failed to fetch active users: {e}")
-            return []
-
-
-
+    # ==================================================================
+    # CUSTOM FIELD UPDATE
+    # ==================================================================
 
     def update_user_custom_field(self, user_id: int, field_value: str, field_name: str = None):
-        """Update a BlueFolder user's custom field using an env-based or provided field name."""
+        """
+        Update a BlueFolder user's custom field.
+        Matches your SDK signature: update(payload_dict)
+        """
+
         try:
-            # Fallback order: explicit arg → env var → hardcoded default
-            field_name = field_name or os.getenv("CUSTOM_ROUTE_URL_FIELD_NAME", "OptimizedRouteURL")
+            # field name = explicit → env → default
+            name = field_name or os.getenv("CUSTOM_ROUTE_URL_FIELD_NAME", "OptimizedRouteURL")
 
             payload = {
+                "userId": user_id,
                 "CustomFields": {
                     "CustomField": {
-                        "Name": field_name,
+                        "Name": name,
                         "Value": field_value
                     }
-                },
-                "userId": user_id
+                }
             }
 
-            result = self.client.users.update(params=payload)
-            logger.info(f"[USERS] Updated {field_name} for user {user_id}.")
+            logger.debug(f"[USERS] Sending update payload: {payload}")
+
+            # SDK ONLY supports: update(dict)
+            result = self._safe_users_update(payload)
+
+            logger.info(f"[USERS] Updated {name} for user {user_id}")
             return result
 
         except Exception as e:
-            logger.exception(f"[USERS] Failed to update custom field for user {user_id}: {e}")
+            logger.exception(f"[USERS] Failed to update custom field for {user_id}: {e}")
             return None
 
+
+    # ==================================================================
+    # ORIGIN ADDRESS BUILDER
+    # ==================================================================
+
+    def get_user_origin_address(self, user_id):
+        u = self.get_user(user_id)
+        if not u:
+            return None
+
+        # Work address preferred
+        parts = [
+            u.get("addressWork_Street"),
+            u.get("addressWork_City"),
+            u.get("addressWork_State"),
+            u.get("addressWork_PostalCode"),
+        ]
+        work = [p for p in parts if p]
+        if work:
+            return ", ".join(work)
+
+        # Home fallback
+        parts = [
+            u.get("addressHome_Street"),
+            u.get("addressHome_City"),
+            u.get("addressHome_State"),
+            u.get("addressHome_PostalCode"),
+        ]
+        home = [p for p in parts if p]
+        if home:
+            return ", ".join(home)
+
+        return None
