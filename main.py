@@ -7,8 +7,9 @@ with Cloudflare shortener integration.
 
 import logging
 from datetime import datetime
+import argparse
 from bluefolder_integration import BlueFolderIntegration
-from routing import generate_google_route, shorten_route_url
+from routing import generate_google_route, shorten_route_url, preview_user_stops
 
 # Logging setup
 logging.basicConfig(
@@ -75,4 +76,41 @@ def run_daily_routing():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Optimized Routing Extension")
+    parser.add_argument(
+        "--preview-stops",
+        nargs="?",
+        const="all",
+        help="Preview RouteStops for a user (e.g., --preview-stops 33538043 or --preview-stops all)",
+    )
+
+    args = parser.parse_args()
+
+    # CLI: Preview-only mode
+    if args.preview_stops:
+        bf = BlueFolderIntegration()
+
+        if args.preview_stops == "all":
+            users = bf.get_active_users()
+            print(f"\n=== PREVIEW MODE: Showing stops for {len(users)} users ===\n")
+            for u in users:
+                uid = int(u.get("userId"))
+                name = f"{u.get('firstName')} {u.get('lastName')}"
+                print(f"\n#### PREVIEW {name} ({uid}) ####")
+                origin = bf.get_user_origin_address(uid)
+                preview_user_stops(uid, origin=origin)
+        else:
+            try:
+                uid = int(args.preview_stops)
+            except:
+                raise ValueError("User ID must be a number or 'all'")
+
+            name = args.preview_stops
+            origin = BlueFolderIntegration().get_user_origin_address(uid)
+            preview_user_stops(uid, origin=origin)
+
+        exit(0)
+
+    # Normal scheduled run
     run_daily_routing()
+

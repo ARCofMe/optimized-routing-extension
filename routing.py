@@ -85,13 +85,14 @@ def bluefolder_to_routestops(assignments: List[dict]) -> List[RouteStop]:
     """
     Convert enriched BlueFolder assignment dictionaries into RouteStop objects.
 
-    Args:
-        assignments (List[dict]): List of enriched BlueFolder assignments.
-
-    Returns:
-        List[RouteStop]: Structured stops ready for route building.
+    Deduplication logic:
+        - If BlueFolder creates AM and PM blocks for the same SR,
+          they share the same address → causes duplicate waypoints.
+        - We dedupe based on (serviceRequestId, address).
+        - If duplicates exist, we keep the *earliest* service window.
     """
-    stops: List[RouteStop] = []
+
+    raw_stops: List[RouteStop] = []
 
     for a in assignments:
         address = a.get("address", "")
@@ -103,10 +104,31 @@ def bluefolder_to_routestops(assignments: List[dict]) -> List[RouteStop]:
         window = determine_service_window(a.get("start", ""))
         label = f"SR-{a.get('serviceRequestId', 'N/A')}"
 
-        stops.append(RouteStop(address=full_address, window=window, label=label))
+        raw_stops.append(
+            RouteStop(
+                address=full_address,
+                window=window,
+                label=label
+            )
+        )
 
-    logger.debug(f"Converted {len(stops)} assignments to RouteStops.")
+    unique = {}
+
+    for stop in raw_stops:
+        key = (stop.label, stop.address)
+
+        if key not in unique:
+            unique[key] = stop
+        else:
+            # Keep earliest window value
+            if stop.window.value < unique[key].window.value:
+                unique[key] = stop
+
+    stops = list(unique.values())
+
+    logger.debug(f"Converted {len(raw_stops)} assignments → {len(stops)} unique RouteStops.")
     return stops
+
 
 
 # ---------------------------------------------------------------------------
@@ -145,3 +167,52 @@ def generate_google_route(user_id: int, origin_address: Optional[str] = None) ->
     logger.info(f"[ROUTING] Generated route URL for user {user_id}: {route_url}")
 
     return route_url
+
+
+def preview_user_stops(user_id: int, origin: Optional[str] = None):
+    """
+    CLI helper:
+      - Shows enriched assignments
+      - Shows deduped RouteStops
+      - Shows final ordered stop list
+      - Displays route URL (if available)
+    """
+
+    bf = BlueFolderIntegration()
+    assignments = bf.get_user_assignments_today(user_id)
+
+    print("\n================= RAW ASSIGNMENTS =================")
+    if not assignments:
+        print(f"[NO ASSIGNMENTS] User {user_id} has no scheduled work today.")
+        print("===================================================\n")
+        return None
+
+    for a in assignments:
+        print(a)
+
+    # Build deduped stops
+    stops = bluefolder_to_routestops(assignments)
+
+    print("\n================= ROUTE STOPS =================")
+    if not stops:
+        print(f"[NO VALID STOPS] User {user_id} had assignments but they could not be converted.")
+        print("===================================================\n")
+        return None
+
+    for s in stops:
+        print(f"- {s.label} | {s.window.name} | {s.address}")
+
+    mgr = GoogleMapsRoutingManager(origin=origin or "South Paris, ME")
+    mgr.add_stops(stops)
+
+    print("\n================= ROUTE URL =================")
+    try:
+        url = mgr.build_route_url()
+        print(url)
+    except Exception as e:
+        print("[ERROR] Could not generate route:", e)
+        url = None
+
+    print("===================================================\n")
+    return url
+
