@@ -1,6 +1,6 @@
-"""
-routing.py
 
+# routing.py
+"""
 Primary orchestration layer for generating technician routes
 from BlueFolder assignments using Google Maps.
 
@@ -9,7 +9,6 @@ Responsibilities:
     - Convert assignments into structured RouteStop objects.
     - Pass stops to GoogleMapsRoutingManager for optimized routing.
 """
-
 import os
 import logging
 from datetime import datetime
@@ -29,7 +28,6 @@ CF_SHORTENER_URL = os.getenv("CF_SHORTENER_URL")
 # Helpers
 # ---------------------------------------------------------------------------
 
-
 def shorten_route_url(long_url: str) -> str:
     """
     Hit Cloudflare Worker shortener to convert a long Google Maps route URL.
@@ -40,7 +38,11 @@ def shorten_route_url(long_url: str) -> str:
         return long_url
 
     try:
-        r = requests.post(f"{CF_SHORTENER_URL}/new", json={"url": long_url}, timeout=6)
+        r = requests.post(
+            f"{CF_SHORTENER_URL}/new",
+            json={"url": long_url},
+            timeout=6
+        )
         if r.ok:
             data = r.json()
             short = data.get("short")
@@ -55,7 +57,6 @@ def shorten_route_url(long_url: str) -> str:
         logger.exception(f"[SHORTENER] Exception: {e}")
 
     return long_url
-
 
 def determine_service_window(start_time: str) -> ServiceWindow:
     """
@@ -111,7 +112,6 @@ def bluefolder_to_routestops(assignments: List[dict]) -> List[RouteStop]:
 # ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
-
 
 def generate_google_route(user_id: int, origin_address: Optional[str] = None) -> str:
     """
