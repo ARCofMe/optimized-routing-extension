@@ -1,122 +1,113 @@
 # Optimized Routing Extension
 
-A Python integration for **BlueFolder** service management that generates optimized
-**Google Maps routes** for technicians based on their daily assignments.
+This extension integrates **BlueFolder**, **Google Maps**, and optional **Cloudflare Workers URL Shortening** to automatically generate daily optimized driving routes for technicians.
 
 ---
 
-## 🚀 Features
+## ✨ Features
 
-- 🔗 BlueFolder API integration (Assignments, Customers, Locations)
-- 🗺️ Google Maps optimization with deduplication + caching
-- ⚡ Parallel enrichment and persistent caching to reduce API usage
-- 🧰 CLI and test utility for per-technician route generation
-- 🧠 Modular structure (extendable for automation and new API domains)
+### 🔧 BlueFolder Integration
+- Fetches technician assignments for the current day
+- Resolves customer and location data with caching to reduce API calls
+- Falls back to listType="full" user list when user detail API is restricted
+- Saves generated route links into `link2Url` field on user accounts (best available writeable field)
+
+### 🗺️ Google Maps Route Optimization
+- Converts service requests into structured route stops
+- Applies AM/PM service windows
+- Builds a final optimized Google Maps direction URL
+- CLI preview mode allows inspection before updating BlueFolder
+
+### 🔗 Cloudflare URL Shortening (Optional)
+Long Google Maps URLs can exceed the BlueFolder 255–character field limit.  
+This extension supports a **Cloudflare Worker URL shortener**:
+
+```
+CF_SHORTENER_URL=https://<your-worker>.workers.dev
+```
+
+When configured, the route URL is automatically shortened before saving.
 
 ---
 
-## ⚙️ Setup
-
-### 1. Clone & Install Dependencies
-
-```bash
-git clone https://github.com/yourusername/optimized-routing-extension.git
-cd optimized-routing-extension
-pip install -r requirements.txt
-```
-
-### 2. Environment Configuration
-
-Copy the example environment file and populate it with your credentials:
-
-```bash
-cp .env.example .env
-```
-
-Fill in the following keys:
-
-```
-BLUEFOLDER_API_KEY=your_api_key_here
-BLUEFOLDER_ACCOUNT_NAME=your_account_name_here
-GOOGLE_MAPS_API_KEY=your_google_maps_key_here
-```
-
----
-
-## 🧪 Usage Example
-
-```bash
-python test_route_optimizer.py
-```
-
-Example output:
-
-```
-=== Generating optimized Google Maps route for user 33553227 ===
-[ROUTING] Deduplicated 8 redundant stops → 1 unique locations.
-Google Maps Route:
-https://www.google.com/maps/dir/180+E+Hebron+Rd%2C+Hebron%2C+ME%2C+04238/164+NEW+COUNTY+RD,+Thomaston,+ME/180+E+Hebron+Rd,+Hebron,+ME
-```
-
----
-
-## 🗂️ Project Structure
+## 📦 Directory Structure
 
 ```
 optimized-routing-extension/
 │
-├── bluefolder_api/
-│   ├── base.py
-│   ├── client.py
-│   ├── customers.py
-│   ├── customer_locations.py
-│   ├── assignments.py
-│   ├── appointments.py
-│   ├── users.py
-│   └── ...
+├── main.py                    # Main CLI entry point
+├── routing.py                 # Route generation + shortener integration
+├── bluefolder_integration.py  # User, SR, assignment adapters
 │
 ├── manager/
-│   ├── base.py
-│   ├── google_manager.py
+│   ├── base.py                # RouteStop + enums
+│   └── google_manager.py      # Google Maps routing builder
 │
-├── utils/
-│   ├── cache_manager.py
+├── tests/
+│   ├── test_url_shortener.py
+│   ├── test_user_update.py
+│   └── ...
 │
-├── routing.py
-├── bluefolder_integration.py
-├── test_route_optimizer.py
-├── requirements.txt
-└── README.md
+└── utils/
+    └── cache_manager.py
 ```
 
 ---
 
-## 🧹 Linting & Formatting
+## 🚀 Quick Start
 
-Keep your codebase consistent and readable:
+### 1. Install Dependencies
+```
+pip install -r requirements.txt
+```
 
-```bash
-pip install black isort
-black .
-isort .
+### 2. Configure Environment
+Create `.env`:
+
+```
+BLUEFOLDER_API_KEY=xxxx
+BLUEFOLDER_BASE_URL=https://example.bluefolder.com/api/2.0
+GOOGLE_API_KEY=xxxx
+CF_SHORTENER_URL=https://your-worker.workers.dev   # optional
+```
+
+### 3. Test Your Setup
+```
+python3 tests/test_url_shortener.py
+python3 tests/test_user_update.py
+```
+
+### 4. Generate a Route
+```
+python3 main.py --user 33538043
+```
+
+### 5. Preview Stops (no update to BlueFolder)
+```
+python3 main.py --preview-stops 33538043
+python3 main.py --preview-stops all
 ```
 
 ---
 
-## 🛣️ Roadmap
+## 📝 Notes
 
-| Feature | Status |
-|----------|---------|
-| BlueFolder API integration | ✅ |
-| Google Maps Routing | ✅ |
-| Deduplication of stops | ✅ |
-| Persistent caching | ✅ |
-| CLI Route Generator | 🧩 Planned |
-| Fuzzy address matching | 🧩 Planned |
-| Route summary export (CSV/PDF) | 🧩 Planned |
+### BlueFolder Permissions
+Standard API keys **cannot update most user fields**.  
+This extension stores route URLs in the **`link2Url`** field because it is the only reliably editable field at this permission level.
+
+### Rate Limiting
+BlueFolder enforces strict rate limits.  
+`bluefolder_safe` decorator automatically retries after parsing the returned "Try again after" timestamp.
 
 ---
 
-## 🧾 License
+## 📘 Future Enhancements
+- Dedicated domain route shortening service (self-hosted)
+- Full user editing when Admin API scope is granted
+- Persistent cloud caching layer (Redis / KV)
 
-MIT License © 2025 — Developed by [Your Name / Team]
+---
+
+## 📄 License
+MIT License — Free to modify and integrate into your own systems.
