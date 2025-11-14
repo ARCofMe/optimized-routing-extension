@@ -4,35 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "optimized-routing-extension"
-version = "0.1.0"
-description = "Automatic routing + Google Maps optimizer + BlueFolder integration"
+version = "0.2.0"
+description = "Optimized BlueFolder routing + Google Maps + Cloudflare shortener"
 readme = "README.md"
-requires-python = ">=3.10"
 authors = [
-    {name="David Durost"},
+    { name = "David Durost" }
 ]
+license = { text = "MIT" }
+requires-python = ">=3.9"
+
 dependencies = [
-    "python-dotenv",
     "requests",
+    "python-dotenv",
+    "googlemaps",
 ]
 
-[tool.setuptools]
-# This tells setuptools that your Python modules live directly in the repo root
-packages = [
-    "manager",
-    "utils",
-]
+[tool.setuptools.packages.find]
+where = ["optimized_routing"]
 
-# These standalone Python files should be exposed as top-level modules
-py-modules = [
-    "routing",
-    "bluefolder_integration",
-    "config",
-]
-
-[tool.setuptools.package-data]
-"manager" = ["*.py"]
-"utils" = ["*.py"]
-
-[tool.setuptools.exclude-package-data]
-"*" = ["venv*", "*.old"]
+[project.scripts]
+optimized-routing = "optimized_routing.main:cli_entry"

@@ -7,9 +7,9 @@ Uses the existing optimized-routing-extension internals.
 import os
 from datetime import date
 
-from bluefolder_integration import BlueFolderIntegration
-from routing import bluefolder_to_routestops, shorten_route_url
-from manager.google_manager import GoogleMapsRoutingManager
+from optimized_routing.bluefolder_integration import BlueFolderIntegration
+from optimized_routing.routing import bluefolder_to_routestops, shorten_route_url
+from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
 
 
 # 🔹 CHANGE THIS TO YOUR BlueFolder userId

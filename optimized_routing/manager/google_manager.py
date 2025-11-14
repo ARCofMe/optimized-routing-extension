@@ -23,9 +23,9 @@ from dotenv import load_dotenv
 import googlemaps
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from utils.cache_manager import CacheManager
-from config import RouteConfig
-from .base import BaseRoutingManager, RouteStop
+from optimized_routing.utils.cache_manager import CacheManager
+from optimized_routing.config import RouteConfig
+from optimized_routing.manager.base import BaseRoutingManager, RouteStop
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from requests.exceptions import HTTPError
 
 from bluefolder_api.client import BlueFolderClient
-from utils.cache_manager import CacheManager
+from optimized_routing.utils.cache_manager import CacheManager
 
 load_dotenv()
 logger = logging.getLogger(__name__)

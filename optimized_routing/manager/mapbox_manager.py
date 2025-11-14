@@ -12,7 +12,7 @@ To implement:
 from __future__ import annotations
 import logging
 
-from .base import BaseRoutingManager
+from optimized_routing.manager.base import BaseRoutingManager
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 import argparse
 
-from bluefolder_integration import BlueFolderIntegration
+from optimized_routing.bluefolder_integration import BlueFolderIntegration
 from routing import (
     generate_google_route,
     shorten_route_url,
@@ -164,3 +164,7 @@ def __main__():
 
 if __name__ == "__main__":
     __main__()
+
+def cli_entry():
+    import sys
+    dispatch_cli(sys.argv[1:])
