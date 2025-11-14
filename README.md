@@ -11,10 +11,12 @@ This extension integrates **BlueFolder**, **Google Maps**, and optional **Cloudf
 - Resolves customer and location data with caching to reduce API calls
 - Falls back to listType="full" user list when user detail API is restricted
 - Saves generated route links into `link2Url` field on user accounts (best available writeable field)
+- Supports CLI override of the origin or destination address
 
 ### 🗺️ Google Maps Route Optimization
 - Converts service requests into structured route stops
 - Applies AM/PM service windows
+- Merges duplicate AM/PM stops that represent the same physical call
 - Builds a final optimized Google Maps direction URL
 - CLI preview mode allows inspection before updating BlueFolder
 
@@ -68,7 +70,9 @@ Create `.env`:
 BLUEFOLDER_API_KEY=xxxx
 BLUEFOLDER_BASE_URL=https://example.bluefolder.com/api/2.0
 GOOGLE_API_KEY=xxxx
-CF_SHORTENER_URL=https://your-worker.workers.dev   # optional
+
+# optional
+CF_SHORTENER_URL=https://your-worker.workers.dev
 ```
 
 ### 3. Test Your Setup
@@ -77,15 +81,40 @@ python3 tests/test_url_shortener.py
 python3 tests/test_user_update.py
 ```
 
-### 4. Generate a Route
+---
+
+## 🧭 CLI Usage
+
+### ✔️ Generate a Route for **One User**
 ```
 python3 main.py --user 33538043
 ```
 
-### 5. Preview Stops (no update to BlueFolder)
+### ✔️ Preview Stops (No BlueFolder Update)
 ```
 python3 main.py --preview-stops 33538043
 python3 main.py --preview-stops all
+```
+
+### ✔️ Override Origin
+Useful for testing or special-case dispatch days.
+
+```
+python3 main.py --user 33538043 --origin "South Paris, ME"
+```
+
+### ✔️ Override Final Destination
+For technicians who end their route somewhere other than the shop/home.
+
+```
+python3 main.py --user 33538043 --destination "61 Portland Rd, Gray ME"
+```
+
+### ✔️ Combine Origin + Destination Overrides
+```
+python3 main.py --user 33538043 \
+    --origin "Lewiston, ME" \
+    --destination "South Portland, ME"
 ```
 
 ---
@@ -106,6 +135,7 @@ BlueFolder enforces strict rate limits.
 - Dedicated domain route shortening service (self-hosted)
 - Full user editing when Admin API scope is granted
 - Persistent cloud caching layer (Redis / KV)
+- Multi-day scheduling / forecasting
 
 ---
 

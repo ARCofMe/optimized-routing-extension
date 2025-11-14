@@ -129,6 +129,23 @@ def bluefolder_to_routestops(assignments: List[dict]) -> List[RouteStop]:
     logger.debug(f"Converted {len(raw_stops)} assignments → {len(stops)} unique RouteStops.")
     return stops
 
+def dedupe_stops(stops):
+    """
+    Remove duplicate stops caused by AM/PM overlapping assignments.
+    Two stops are considered identical if they share the same SR ID or same address.
+    """
+    seen = set()
+    unique = []
+
+    for s in stops:
+        # Use SR ID if present, otherwise normalized address
+        key = s.label or s.address.lower().strip()
+
+        if key not in seen:
+            unique.append(s)
+            seen.add(key)
+
+    return unique
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +176,7 @@ def generate_google_route(user_id: int, origin_address: Optional[str] = None) ->
         return "No assignments found."
 
     stops = bluefolder_to_routestops(assignments)
+    stops = dedupe_stops(stops)
 
     manager = GoogleMapsRoutingManager(origin=origin_address or "South Paris, ME")
     manager.add_stops(stops)
@@ -192,6 +210,7 @@ def preview_user_stops(user_id: int, origin: Optional[str] = None):
 
     # Build deduped stops
     stops = bluefolder_to_routestops(assignments)
+    stops = dedupe_stops(stops)
 
     print("\n================= ROUTE STOPS =================")
     if not stops:

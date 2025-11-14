@@ -143,33 +143,54 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
     # -----------------------------------------------------------------------
     # Route URL Generation
     # -----------------------------------------------------------------------
-
     def build_route_url(self) -> str:
         """
         Build a shareable Google Maps Directions URL with the technician’s
-        origin, optimized waypoints, and return-to-origin option.
+        origin and an optimized job order.
 
-        Returns:
-            str: The Google Maps directions URL.
+        Notes:
+        - Uses Google Directions API `optimize_waypoints=True` via
+          `get_optimized_route`.
+        - Service windows (AM/PM/ALL_DAY) are currently *not* enforced as
+          hard constraints; they’re informational only.
         """
+        # 1) De-duplicate the stops (removes any AM/PM duplicate SRs, etc.)
         unique_stops = self.deduplicate_stops()
-        self.stops = unique_stops  # replace to keep consistent across calls
+        self.stops = unique_stops  # keep consistent for future calls
 
-        groups = self.grouped_stops()
-        if not groups:
+        if not self.stops:
             raise ValueError("No stops available to generate a route.")
 
-        # Flatten stops while linking time windows sequentially
-        all_stops = []
-        for i, group in enumerate(groups):
-            if i > 0:
-                all_stops.append(groups[i - 1][-1])
-            all_stops.extend(group)
+        # Extract just the address strings in their current (insertion) order
+        addresses = [s.address for s in self.stops]
 
-        origin = self.origin
-        destination = self.origin if self.end_at_origin else all_stops[-1].address
-        waypoints = [s.address for s in all_stops]
+        # 2) Try to get an optimized route from Google
+        try:
+            cfg = RouteConfig()
+            # Always start from our configured origin
+            cfg.start_location = self.origin
 
+            # Return to origin if configured, otherwise end at last job
+            if self.end_at_origin:
+                cfg.end_location = self.origin
+
+            optimized = self.get_optimized_route(addresses, config=cfg)
+
+            origin = optimized["origin"]
+            destination = optimized["destination"]
+            waypoints = optimized["waypoints"]
+
+        except Exception as e:
+            # If anything fails (quota, network, etc.), fall back to
+            # the “as-scheduled” order instead of crashing.
+            logger.warning(
+                f"[ROUTING] Optimization failed, using raw order instead: {e}"
+            )
+            origin = self.origin
+            destination = self.origin if self.end_at_origin else addresses[-1]
+            waypoints = addresses
+
+        # 3) Build the URL in either query-string or path style
         if self.use_query_string:
             params = {
                 "origin": origin,
@@ -179,14 +200,16 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
             }
             if self.avoid:
                 params["avoid"] = self.avoid
-            query_string = urlencode(params, quote_via=quote_plus)
-            return f"https://www.google.com/maps/dir/?{query_string}"
 
-        # Default (path-style) URL
+            query_string = urlencode(params, quote_via=quote_plus)
+            url = f"https://www.google.com/maps/dir/?{query_string}"
+            logger.debug(f"[ROUTING] Generated route QS URL: {url}")
+            return url
+
+        # Default: path-style URL (/dir/ORIGIN/STOP1/.../DEST)
         full_route = [origin] + waypoints + [destination]
         encoded = [quote_plus(addr) for addr in full_route]
         url = "https://www.google.com/maps/dir/" + "/".join(encoded)
-
         logger.debug(f"[ROUTING] Generated route URL: {url}")
         return url
 
