@@ -1,33 +1,26 @@
-"""Manual helper for exercising the routing workflow end to end."""
+# tests/test_route_optimizer.py
 
-from bluefolder_integration import BlueFolderIntegration
-from routing import generate_google_route
+import optimized_routing.routing as routing
+from optimized_routing.bluefolder_integration import BlueFolderIntegration
 
 
 def test_route_for_user():
-    """Test route optimization + map URL generation for a specific BlueFolder user."""
+    """Smoke test that calls don't crash end-to-end."""
     uid = 12345
-    print(f"=== Generating optimized Google Maps route for user {uid} ===")
+    origin = "180 E Hebron Rd, Hebron, ME 04238"
 
-    origin = "180 E Hebron Rd, Hebron, ME 04238"  # your shop/home base
     bf = BlueFolderIntegration()
 
-    # Fetch today's assignments
+    # Should not crash even with no real BlueFolder data
     assignments = bf.get_user_assignments_today(uid)
-    print(f"Found {len(assignments)} assignments for user {uid}\n")
+    assert isinstance(assignments, list)
 
-    # Print assignments with richer info
-    for a in assignments:
-        desc = a.get("description") or "No description"
-        addr = a.get("address") or "?"
-        city = a.get("city") or "?"
-        print(f" - {desc} → {addr}, {city}")
+    # Should always return a URL or placeholder text
+    route = routing.generate_google_route(
+        uid,
+        origin_address=origin,
+        destination_override=None,
+    )
 
-    print("\n=== Generating Google Maps Route ===")
-    route_url = generate_google_route(uid, origin_address=origin)
-    print(f"Google Maps Route URL:\n{route_url}\n")
-
-
-if __name__ == "__main__":
-    # Example: replace with any valid BlueFolder userId
-    test_route_for_user(33553227)
+    assert isinstance(route, str)
+    assert len(route) > 0

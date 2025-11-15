@@ -1,0 +1,46 @@
+name: Optimized Routing - Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run Tests
+        run: |
+          pytest
+
+      - name: Upload JUnit Test Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-report-${{ matrix.python-version }}
+          path: reports/unit-tests.xml
+
+      - name: Upload Coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: reports/coverage.xml

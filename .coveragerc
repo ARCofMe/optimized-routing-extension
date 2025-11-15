@@ -1,0 +1,16 @@
+[run]
+branch = True
+source = optimized_routing
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    def __repr__
+    raise NotImplementedError
+
+[html]
+directory = reports/htmlcov
+
+[xml]
+output = reports/coverage.xml
