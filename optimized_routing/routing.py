@@ -1,4 +1,3 @@
-
 # routing.py
 """
 Primary orchestration layer for generating technician routes
@@ -28,6 +27,7 @@ CF_SHORTENER_URL = os.getenv("CF_SHORTENER_URL")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def shorten_route_url(long_url: str) -> str:
     """
     Hit Cloudflare Worker shortener to convert a long Google Maps route URL.
@@ -38,11 +38,7 @@ def shorten_route_url(long_url: str) -> str:
         return long_url
 
     try:
-        r = requests.post(
-            f"{CF_SHORTENER_URL}/new",
-            json={"url": long_url},
-            timeout=6
-        )
+        r = requests.post(f"{CF_SHORTENER_URL}/new", json={"url": long_url}, timeout=6)
         if r.ok:
             data = r.json()
             short = data.get("short")
@@ -57,6 +53,7 @@ def shorten_route_url(long_url: str) -> str:
         logger.exception(f"[SHORTENER] Exception: {e}")
 
     return long_url
+
 
 def determine_service_window(start_time: str) -> ServiceWindow:
     """
@@ -104,13 +101,7 @@ def bluefolder_to_routestops(assignments: List[dict]) -> List[RouteStop]:
         window = determine_service_window(a.get("start", ""))
         label = f"SR-{a.get('serviceRequestId', 'N/A')}"
 
-        raw_stops.append(
-            RouteStop(
-                address=full_address,
-                window=window,
-                label=label
-            )
-        )
+        raw_stops.append(RouteStop(address=full_address, window=window, label=label))
 
     unique = {}
 
@@ -126,8 +117,11 @@ def bluefolder_to_routestops(assignments: List[dict]) -> List[RouteStop]:
 
     stops = list(unique.values())
 
-    logger.debug(f"Converted {len(raw_stops)} assignments → {len(stops)} unique RouteStops.")
+    logger.debug(
+        f"Converted {len(raw_stops)} assignments → {len(stops)} unique RouteStops."
+    )
     return stops
+
 
 def dedupe_stops(stops):
     """
@@ -151,6 +145,7 @@ def dedupe_stops(stops):
 # ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
+
 
 def generate_google_route(user_id: int, origin_address: Optional[str] = None) -> str:
     """
@@ -214,7 +209,9 @@ def preview_user_stops(user_id: int, origin: Optional[str] = None):
 
     print("\n================= ROUTE STOPS =================")
     if not stops:
-        print(f"[NO VALID STOPS] User {user_id} had assignments but they could not be converted.")
+        print(
+            f"[NO VALID STOPS] User {user_id} had assignments but they could not be converted."
+        )
         print("===================================================\n")
         return None
 
@@ -234,4 +231,3 @@ def preview_user_stops(user_id: int, origin: Optional[str] = None):
 
     print("===================================================\n")
     return url
-

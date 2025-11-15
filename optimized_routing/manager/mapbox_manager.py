@@ -103,7 +103,7 @@ class MapboxRoutingManager:
                     "source": "first",
                     "destination": "last",
                     "overview": "full",
-                    "annotations": "distance,duration"
+                    "annotations": "distance,duration",
                 },
                 timeout=8,
             )

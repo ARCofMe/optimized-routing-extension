@@ -8,6 +8,7 @@ geopy==2.4.1
 googlemaps==4.10.0
 idna==3.11
 iniconfig==2.3.0
+-e git+https://github.com/ARCofMe/optimized-routing-extension.git@4ce171a6f33ce9d2e33e9c4f44cf2f155cc8e222#egg=optimized_routing_extension
 packaging==25.0
 pluggy==1.6.0
 pydantic==2.12.4

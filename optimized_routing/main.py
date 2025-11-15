@@ -1,8 +1,10 @@
 """
 main.py
 
-Daily routing job runner for BlueFolder → Optimized Google Maps URL
-with Cloudflare shortener integration + CLI.
+Optimized Routing Extension – now with provider selection:
+    --provider google
+    --provider osm
+    --provider ors-native
 """
 
 import logging
@@ -10,11 +12,17 @@ from datetime import datetime
 import argparse
 
 from optimized_routing.bluefolder_integration import BlueFolderIntegration
-from routing import (
+from optimized_routing.routing import (
     generate_google_route,
     shorten_route_url,
     preview_user_stops,
 )
+
+# Routing managers
+from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
+from optimized_routing.manager.osm_manager import OSMRoutingManager
+from optimized_routing.manager.ors_native_manager import ORSNativeRoutingManager
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,40 +31,102 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ----------------------------- CLI HELPERS -----------------------------
+# ---------------------------------------------------------------------------
+# Routing Provider Factory
+# ---------------------------------------------------------------------------
+def get_routing_manager(provider: str, origin: str, destination: str):
+    provider = provider.lower()
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Optimized Routing Extension CLI"
-    )
+    if provider == "google":
+        return GoogleMapsRoutingManager(
+            origin=origin,
+            destination_override=destination or None,
+        )
 
-    parser.add_argument(
-        "--user",
-        help="Run routing for a specific BlueFolder user ID",
-    )
+    if provider == "osm":
+        return OSMRoutingManager(
+            origin=origin,
+            destination_override=destination or None,
+        )
 
-    parser.add_argument(
-        "--origin",
-        help="Override route origin address",
-    )
+    if provider == "ors-native":
+        return ORSNativeRoutingManager(
+            origin=origin,
+            destination_override=destination or None,
+        )
 
-    parser.add_argument(
-        "--destination",
-        help="Override route end point (drops a final stop)",
-    )
-
-    parser.add_argument(
-        "--preview-stops",
-        nargs="?",
-        const="all",
-        help="Preview RouteStops (before generating full URL).",
-    )
-
-    return parser
+    raise ValueError(f"Unknown provider: {provider}")
 
 
+# ---------------------------------------------------------------------------
+# Daily run
+# ---------------------------------------------------------------------------
+def run_daily_routing(
+    provider: str, origin_override: str = None, destination_override: str = None
+):
+    logger.info("[START] Route generation job started at %s", datetime.now())
+
+    bf = BlueFolderIntegration()
+    users = bf.get_active_users()
+
+    if not users:
+        logger.warning("No active users found.")
+        return
+
+    for user in users:
+        uid = user.get("userId") or user.get("id")
+        name = f"{user.get('firstName', '')} {user.get('lastName', '')}".strip()
+
+        logger.info("---- Processing %s (ID: %s) ----", name, uid)
+
+        # Determine origin
+        origin = origin_override or bf.get_user_origin_address(uid)
+        if origin:
+            logger.info("[ORIGIN] Using origin: %s", origin)
+        else:
+            origin = "61 Portland Rd, Gray ME"
+            logger.info("[ORIGIN] Using fallback: %s", origin)
+
+        # Determine destination
+        destination = destination_override or None
+
+        # Select provider
+        mgr = get_routing_manager(provider, origin, destination)
+
+        # Fetch assignments
+        assignments = bf.get_user_assignments_today(uid)
+        if not assignments:
+            logger.info("[SKIP] No assignments for %s — skipping update.", name)
+            continue
+
+        # Convert to stops
+        from optimized_routing.routing import bluefolder_to_routestops
+
+        stops = bluefolder_to_routestops(assignments)
+        mgr.add_stops(stops)
+
+        # Generate route URL
+        try:
+            route_url = mgr.build_route_url()
+            logger.info("[ROUTE] Provider '%s' URL: %s", provider, route_url)
+        except Exception as e:
+            logger.exception("[ERROR] Failed generating route for %s: %s", uid, e)
+            continue
+
+        # Shorten (optional)
+        short = shorten_route_url(route_url)
+
+        # Save to BlueFolder
+        bf.update_user_custom_field(int(uid), short)
+        logger.info("[DONE] Updated BF route field for %s", name)
+
+    logger.info("[FINISHED] Daily routing job complete.")
+
+
+# ---------------------------------------------------------------------------
+# Preview mode
+# ---------------------------------------------------------------------------
 def handle_preview_mode(args):
-    """Handle --preview-stops."""
     bf = BlueFolderIntegration()
 
     if args.preview_stops == "all":
@@ -64,107 +134,59 @@ def handle_preview_mode(args):
         print(f"\n=== PREVIEW MODE: Showing stops for {len(users)} users ===\n")
         for u in users:
             uid = int(u["userId"])
-            fname = u.get("firstName", "")
-            lname = u.get("lastName", "")
-            name = (fname + " " + lname).strip() or f"User {uid}"
-            print(f"\n#### PREVIEW {name} ({uid}) ####")
-            origin = bf.get_user_origin_address(uid)
+            origin = args.origin or bf.get_user_origin_address(uid)
             preview_user_stops(uid, origin=origin)
-        return
-
-    # Single-user preview
-    uid = int(args.preview_stops)
-    origin = bf.get_user_origin_address(uid)
-    preview_user_stops(uid, origin=origin)
-
-
-def run_daily_routing_single_user(uid: int, args):
-    """
-    Run routing for a specific user, with optional overrides.
-    """
-    bf = BlueFolderIntegration()
-
-    name = f"User {uid}"
-
-    origin = (
-        args.origin
-        or bf.get_user_origin_address(uid)
-        or "61 Portland Rd Gray, ME"
-    )
-
-    if args.destination:
-        logger.info(f"[CLI] Forcing destination to: {args.destination}")
-
-    logger.info(f"[ORIGIN] Using: {origin}")
-
-    if args.destination:
-        url = generate_google_route(
-            uid,
-            origin_address=origin,
-            destination_override=args.destination,
-        )
     else:
-        url = generate_google_route(
-            uid,
-            origin_address=origin,
-        )
+        uid = int(args.preview_stops)
+        origin = args.origin or BlueFolderIntegration().get_user_origin_address(uid)
+        preview_user_stops(uid, origin=origin)
 
 
-    if not url or "No assignments found" in url:
-        print("No assignments found.")
-        return
-
-    short = shorten_route_url(url)
-    print("Generated:", short)
-
-    bf.update_user_custom_field(uid, short)
-
-
-def run_daily_routing_all(args):
-    """
-    Normal scheduler: iterate all users.
-    """
-    bf = BlueFolderIntegration()
-    users = bf.get_active_users()
-
-    for u in users:
-        uid = int(u["userId"])
-        run_daily_routing_single_user(uid, args)
-
-
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 def dispatch_cli(args):
-    """
-    Unified dispatcher used by actual CLI and tests.
-    """
-    # Handle preview mode
+    # Preview mode first
     if args.preview_stops:
         handle_preview_mode(args)
         return
 
-    # If user passed --user
-    if args.user:
-        uid = int(args.user)
-        run_daily_routing_single_user(uid, args)
-        return
+    # Normal routing job
+    run_daily_routing(
+        provider=args.provider,
+        origin_override=args.origin,
+        destination_override=args.destination,
+    )
 
-    # Otherwise run for all users
-    run_daily_routing_all(args)
-
-
-# ------------------------------ ENTRYPOINT ------------------------------
 
 def __main__():
-    """
-    Testable entrypoint. (Tests call this!)
-    """
-    parser = build_parser()
+    parser = argparse.ArgumentParser(description="Optimized Routing Extension")
+
+    parser.add_argument(
+        "--provider",
+        default="google",
+        choices=["google", "osm", "ors-native"],
+        help="Routing provider to use.",
+    )
+
+    parser.add_argument(
+        "--user",
+        help="Route for a single user (not implemented in provider mode yet).",
+    )
+
+    parser.add_argument("--origin", help="Override route origin")
+    parser.add_argument("--destination", help="Override route final destination")
+
+    parser.add_argument(
+        "--preview-stops",
+        nargs="?",
+        const="all",
+        help="Preview RouteStops for a user or all users",
+    )
+
     args = parser.parse_args()
     dispatch_cli(args)
 
 
 if __name__ == "__main__":
     __main__()
-
-def cli_entry():
-    import sys
-    dispatch_cli(sys.argv[1:])

@@ -5,4 +5,5 @@ manager/__pycache__/*
 tests/__pycache__/*
 utils/__pycache__/
 cache/
-utils/.cache/
+.cache/
+*.old

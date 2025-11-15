@@ -74,11 +74,16 @@ def test_cli_both_origin_and_destination():
         with patch("main.generate_google_route") as mock_gen:
             mock_gen.return_value = "URL_OK"
 
-            out = run_cli([
-                "--user", "12345",
-                "--origin", "Lewiston, ME",
-                "--destination", "Bangor, ME"
-            ])
+            out = run_cli(
+                [
+                    "--user",
+                    "12345",
+                    "--origin",
+                    "Lewiston, ME",
+                    "--destination",
+                    "Bangor, ME",
+                ]
+            )
 
             mock_gen.assert_called_once()
 
@@ -102,7 +107,9 @@ def test_cli_preview_stops_all():
         with patch("main.BlueFolderIntegration") as MockBF:
             inst = MockBF.return_value
             inst.get_active_users.return_value = [
-                {"userId": "1"}, {"userId": "2"}, {"userId": "3"}
+                {"userId": "1"},
+                {"userId": "2"},
+                {"userId": "3"},
             ]
             inst.get_user_origin_address.return_value = "Test Origin"
 

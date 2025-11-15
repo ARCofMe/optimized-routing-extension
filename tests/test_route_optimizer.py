@@ -9,7 +9,6 @@ def test_route_for_user():
     uid = 12345
     print(f"=== Generating optimized Google Maps route for user {uid} ===")
 
-
     origin = "180 E Hebron Rd, Hebron, ME 04238"  # your shop/home base
     bf = BlueFolderIntegration()
 
