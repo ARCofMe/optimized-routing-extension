@@ -19,12 +19,12 @@ from typing import List, Optional
 from urllib.parse import quote_plus
 import requests
 
-from .base import RoutingProvider, RouteStop
+from .base import RouteStop, BaseRoutingManager
 
 logger = logging.getLogger(__name__)
 
 
-class OSMRoutingManager(RoutingProvider):
+class OSMRoutingManager(BaseRoutingManager):
     """
     Real ORS-backed optimization engine.
     It:

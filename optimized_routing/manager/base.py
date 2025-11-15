@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+class RoutingProvider(Enum):
+    GOOGLE = "google"
+    MAPBOX = "mapbox"
+    OSM = "osm"
+
+
 class ServiceWindow(Enum):
     """Defines technician scheduling windows."""
 
@@ -72,11 +78,14 @@ class BaseRoutingManager(ABC):
 
     Attributes:
         origin (str): Starting address for the route.
+        destination_override (str | None): Optional final destination instead of returning to origin.
         stops (List[RouteStop]): Collection of route stops.
-        end_at_origin (bool): Whether to return to origin at end of route.
+        end_at_origin (bool): Whether to return to origin at end of route
+                              (ignored if destination_override is set).
     """
 
     origin: str
+    destination_override: str | None = None
     stops: List[RouteStop] = field(default_factory=list)
     end_at_origin: bool = True
 
@@ -85,11 +94,9 @@ class BaseRoutingManager(ABC):
     # ----------------------------
 
     def add_stop(self, stop: RouteStop) -> None:
-        """Add a single stop to the route."""
         self.stops.append(stop)
 
     def add_stops(self, stops: List[RouteStop]) -> None:
-        """Add multiple stops to the route."""
         self.stops.extend(stops)
 
     # ----------------------------
@@ -99,12 +106,11 @@ class BaseRoutingManager(ABC):
     @abstractmethod
     def build_route_url(self) -> str:
         """
-        Return a routing URL specific to the provider (e.g., Google Maps).
-
+        Providers must implement a provider-specific URL builder.
         Must:
-            - Respect `origin`
-            - Include all `stops` as waypoints
-            - Optionally include labels or metadata
+            - Respect origin
+            - Include all stops as waypoints
+            - Respect destination_override if present
         """
         ...
 
@@ -113,16 +119,6 @@ class BaseRoutingManager(ABC):
     # ----------------------------
 
     def ordered_stops(self) -> List[RouteStop]:
-        """
-        Order stops based on their service window priority.
-
-        Priority:
-            AM (0)
-            ALL_DAY (1)
-            PM (2)
-
-        TODO: Replace with TSP heuristic considering distances and time windows.
-        """
         priority = {
             ServiceWindow.AM: 0,
             ServiceWindow.ALL_DAY: 1,
@@ -131,12 +127,6 @@ class BaseRoutingManager(ABC):
         return sorted(self.stops, key=lambda s: priority[s.window])
 
     def grouped_stops(self) -> list[list[RouteStop]]:
-        """
-        Group stops into service windows (AM → ALL_DAY → PM).
-
-        Returns:
-            List of grouped stop lists in chronological order.
-        """
         groups = {ServiceWindow.AM: [], ServiceWindow.PM: [], ServiceWindow.ALL_DAY: []}
         for stop in self.ordered_stops():
             groups[stop.window].append(stop)
@@ -151,21 +141,8 @@ class BaseRoutingManager(ABC):
     # ----------------------------
 
     def deduplicate_stops(self) -> list[RouteStop]:
-        """
-        Combine stops that share the same address (case-insensitive).
-
-        Rules:
-            - Retains the earliest service window among duplicates.
-            - Combines all labels into a comma-separated string.
-            - Increments `job_count`.
-            - Adds “(x jobs)” annotation to the label.
-
-        Returns:
-            A new list of unique RouteStop instances.
-        """
         grouped = defaultdict(list)
 
-        # Group stops by normalized address
         for stop in self.stops:
             key = stop.address.strip().lower()
             grouped[key].append(stop)
@@ -181,7 +158,6 @@ class BaseRoutingManager(ABC):
             base.label = ", ".join(combined_labels) if combined_labels else base.label
             base.job_count = len(stops)
 
-            # Determine earliest window
             window_priority = {
                 ServiceWindow.AM: 0,
                 ServiceWindow.ALL_DAY: 1,

@@ -15,12 +15,12 @@ from urllib.parse import quote_plus
 from typing import List, Optional
 import requests
 
-from .base import RoutingProvider, RouteStop
+from .base import BaseRoutingManager, RouteStop
 
 logger = logging.getLogger(__name__)
 
 
-class ORSNativeRoutingManager(RoutingProvider):
+class ORSNativeRoutingManager(BaseRoutingManager):
     def __init__(
         self,
         origin: Optional[str] = None,
