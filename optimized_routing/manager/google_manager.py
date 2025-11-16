@@ -170,9 +170,13 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
             # Always start from our configured origin
             cfg.start_location = self.origin
 
-            # Return to origin if configured, otherwise end at last job
-            if self.end_at_origin:
+            # Destination preference: explicit override > return to origin > last job
+            if self.destination_override:
+                cfg.end_location = self.destination_override
+            elif self.end_at_origin:
                 cfg.end_location = self.origin
+            else:
+                cfg.end_location = addresses[-1]
 
             optimized = self.get_optimized_route(addresses, config=cfg)
 
@@ -187,7 +191,10 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
                 f"[ROUTING] Optimization failed, using raw order instead: {e}"
             )
             origin = self.origin
-            destination = self.origin if self.end_at_origin else addresses[-1]
+            if self.destination_override:
+                destination = self.destination_override
+            else:
+                destination = self.origin if self.end_at_origin else addresses[-1]
             waypoints = addresses
 
         # 3) Build the URL in either query-string or path style

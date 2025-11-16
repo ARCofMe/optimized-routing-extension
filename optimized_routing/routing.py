@@ -147,7 +147,11 @@ def dedupe_stops(stops):
 # ---------------------------------------------------------------------------
 
 
-def generate_google_route(user_id: int, origin_address: Optional[str] = None) -> str:
+def generate_google_route(
+    user_id: int,
+    origin_address: Optional[str] = None,
+    destination_override: Optional[str] = None,
+) -> str:
     """
     Generate a Google Maps route URL for a technician’s assignments today.
 
@@ -159,6 +163,7 @@ def generate_google_route(user_id: int, origin_address: Optional[str] = None) ->
     Args:
         user_id (int): The BlueFolder user ID to fetch assignments for.
         origin_address (Optional[str]): Optional override for route start.
+        destination_override (Optional[str]): Optional final destination override.
 
     Returns:
         str: A fully formed Google Maps route URL or a message if no assignments found.
@@ -173,7 +178,10 @@ def generate_google_route(user_id: int, origin_address: Optional[str] = None) ->
     stops = bluefolder_to_routestops(assignments)
     stops = dedupe_stops(stops)
 
-    manager = GoogleMapsRoutingManager(origin=origin_address or "South Paris, ME")
+    manager = GoogleMapsRoutingManager(
+        origin=origin_address or "South Paris, ME",
+        destination_override=destination_override,
+    )
     manager.add_stops(stops)
 
     route_url = manager.build_route_url()
