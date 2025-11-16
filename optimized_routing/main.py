@@ -5,14 +5,16 @@ Main CLI entry point for Optimized Routing Extension.
 import logging
 from datetime import datetime
 import argparse
+import uuid
 
 from optimized_routing.bluefolder_integration import BlueFolderIntegration
 from optimized_routing.routing import (
-    generate_google_route,
+    generate_route_for_provider,
     shorten_route_url,
     preview_user_stops,
 )
 
+from optimized_routing.config import settings
 from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
 from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
 from optimized_routing.manager.osm_manager import OSMRoutingManager
@@ -59,11 +61,13 @@ def run_daily_routing(
     user_override: int | None = None,
     origin_override: str | None = None,
     destination_override: str | None = None,
-    provider: str = "google",
+    provider: str = settings.default_provider,
+    dry_run: bool = False,
 ):
     """Main runner for routing job."""
 
-    logger.info("[START] Route generation job started at %s", datetime.now())
+    run_id = uuid.uuid4().hex[:8]
+    logger.info("[START] Route generation job %s at %s", run_id, datetime.now())
 
     bf = BlueFolderIntegration()
 
@@ -83,7 +87,7 @@ def run_daily_routing(
         uid = int(user["userId"])
         name = f"{user.get('firstName', '')} {user.get('lastName', '')}".strip()
 
-        logger.info(f"---- Processing {name} (ID: {uid}) ----")
+        logger.info(f"---- Processing {name} (ID: {uid}) [run={run_id}] ----")
 
         # Resolve origin; allow routing layer to apply its own default if missing.
         origin = origin_override or bf.get_user_origin_address(uid)
@@ -100,18 +104,17 @@ def run_daily_routing(
         destination = destination_override or None
 
         # Select provider manager
-        mgr = get_routing_manager(provider, origin, destination)
-
-        # Generate long route URL
+        # Generate long route URL using selected provider
         try:
-            long_url = generate_google_route(
+            long_url = generate_route_for_provider(
+                provider,
                 uid,
                 origin_address=origin,
                 destination_override=destination,
             )
-            logger.info("[ROUTE] Generated URL: %s", long_url)
+            logger.info("[ROUTE] Generated URL: %s [run=%s, user=%s]", long_url, run_id, uid)
         except Exception as e:
-            logger.exception("[ERROR] Route generation failed for %s: %s", uid, e)
+            logger.exception("[ERROR] Route generation failed for %s: %s [run=%s]", uid, e, run_id)
             continue
 
         # Skip users with no assignments
@@ -128,13 +131,16 @@ def run_daily_routing(
             short = long_url
 
         # Update BlueFolder
-        try:
-            bf.update_user_custom_field(uid, short)
-            logger.info("[DONE] Updated route URL for %s", name)
-        except Exception as e:
-            logger.error("[ERROR] BF update failed for %s: %s", name, e)
+        if dry_run:
+            logger.info("[DRY RUN] Skipping BlueFolder update for %s [run=%s]", name, run_id)
+        else:
+            try:
+                bf.update_user_custom_field(uid, short)
+                logger.info("[DONE] Updated route URL for %s [run=%s]", name, run_id)
+            except Exception as e:
+                logger.error("[ERROR] BF update failed for %s: %s [run=%s]", name, e, run_id)
 
-    logger.info("[FINISHED] Routing job complete.")
+    logger.info("[FINISHED] Routing job complete [run=%s]", run_id)
 
 
 # -------------------------------------------------------------------
@@ -162,6 +168,8 @@ def handle_preview_mode(args):
 # CLI ENTRY POINT
 # -------------------------------------------------------------------
 def dispatch_cli(args):
+    provider = args.provider or settings.default_provider
+    dry_run = bool(getattr(args, "dry_run", False))
     # PREVIEW MODE
     if args.preview_stops:
         handle_preview_mode(args)
@@ -173,7 +181,8 @@ def dispatch_cli(args):
             user_override=int(args.user),
             origin_override=args.origin,
             destination_override=args.destination,
-            provider=args.provider,
+            provider=provider or "google",
+            dry_run=dry_run,
         )
 
     # FULL RUN
@@ -181,7 +190,8 @@ def dispatch_cli(args):
         user_override=None,
         origin_override=args.origin,
         destination_override=args.destination,
-        provider=args.provider,
+        provider=provider or "google",
+        dry_run=dry_run,
     )
 
 
@@ -195,7 +205,7 @@ def __main__():
     parser.add_argument("--origin", help="Override origin address")
     parser.add_argument("--destination", help="Override final destination")
     parser.add_argument(
-        "--provider", choices=["google", "mapbox", "osm"], default="google"
+        "--provider", choices=["google", "mapbox", "osm"], default=settings.default_provider
     )
 
     parser.add_argument(
@@ -203,6 +213,11 @@ def __main__():
         nargs="?",
         const="all",
         help="Preview stops for a specific user or all users",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not update BlueFolder with generated routes.",
     )
 
     args = parser.parse_args()

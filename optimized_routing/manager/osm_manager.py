@@ -19,7 +19,7 @@ from typing import List, Optional
 from urllib.parse import quote_plus
 import requests
 
-from .base import RouteStop, BaseRoutingManager
+from .base import RouteStop, BaseRoutingManager, ServiceWindow
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,14 @@ class OSMRoutingManager(BaseRoutingManager):
         if self.origin:
             addresses.append(self.origin)
 
-        for stop in self._stops:
+        # Honor service windows: AM → ALL_DAY → PM
+        priority = {
+            ServiceWindow.AM: 0,
+            ServiceWindow.ALL_DAY: 1,
+            ServiceWindow.PM: 2,
+        }
+        ordered_stops = sorted(self._stops, key=lambda s: priority[s.window])
+        for stop in ordered_stops:
             addresses.append(stop.address)
 
         if self.destination_override:

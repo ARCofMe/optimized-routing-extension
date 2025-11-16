@@ -9,7 +9,8 @@ This package automates optimized route generation for BlueFolder technician assi
 - Fetches daily assignments from BlueFolder
 - Converts assignments → RouteStops with AM/PM/ALL_DAY grouping
 - Deduplicates overlapping stops
-- Supports provider selection (`google`, `mapbox`, `osm`)
+- Supports provider selection (`google`, `mapbox`, `osm`); Google is default
+- Orders stops by service window (AM before PM before ALL_DAY)
 - CLI interface for routing or previewing stops
 - Optional Cloudflare Worker URL shortener
 - Saves final route URL in BlueFolder `link2Url`
@@ -30,8 +31,11 @@ BLUEFOLDER_BASE_URL=https://your.bluefolder.com/api/2.0
 
 GOOGLE_API_KEY=xxxxx
 MAPBOX_API_KEY=xxxxx
+OSM_BASE_URL=https://router.project-osrm.org   # optional override
 
 CF_SHORTENER_URL=https://your-worker.workers.dev   # optional
+DEFAULT_ORIGIN=South Paris, ME                     # optional
+DEFAULT_PROVIDER=google                            # google|mapbox|osm
 ```
 
 ---
@@ -54,6 +58,9 @@ python3 -m optimized_routing.main --user 33538043
 --provider google
 --provider mapbox
 --provider osm
+
+# Skip BF updates (dry run)
+--dry-run
 ```
 
 ### Preview mode (no BlueFolder updates)
@@ -76,6 +83,10 @@ Tests validate:
 - Shortener
 - BlueFolder shims
 - Stop ordering & deduplication
+- Provider key validation
+- Dry-run behavior and logging (run id)
+
+Note: tests stub network calls; enable coverage flags locally if `pytest-cov` is installed.
 
 ---
 

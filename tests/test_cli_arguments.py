@@ -30,12 +30,13 @@ def test_cli_origin_override():
         inst.get_active_users.return_value = [{"userId": "12345"}]
         inst.get_user_origin_address.return_value = None
 
-        with patch("optimized_routing.main.generate_google_route") as mock_gen:
+        with patch("optimized_routing.main.generate_route_for_provider") as mock_gen:
             mock_gen.return_value = "FAKE_URL"
 
             run_cli(["--user", "12345", "--origin", "Lewiston, ME"])
 
             mock_gen.assert_called_with(
+                "google",
                 12345,
                 origin_address="Lewiston, ME",
                 destination_override=None,
@@ -49,12 +50,13 @@ def test_cli_destination_override():
         inst.get_active_users.return_value = [{"userId": "12345"}]
         inst.get_user_origin_address.return_value = None
 
-        with patch("optimized_routing.main.generate_google_route") as mock_gen:
+        with patch("optimized_routing.main.generate_route_for_provider") as mock_gen:
             mock_gen.return_value = "FAKE_URL"
 
             run_cli(["--user", "12345", "--destination", "Portland, ME"])
 
             mock_gen.assert_called_with(
+                "google",
                 12345,
                 origin_address=None,
                 destination_override="Portland, ME",
@@ -68,7 +70,7 @@ def test_cli_both_origin_and_destination():
         inst.get_active_users.return_value = [{"userId": "12345"}]
         inst.get_user_origin_address.return_value = None
 
-        with patch("optimized_routing.main.generate_google_route") as mock_gen:
+        with patch("optimized_routing.main.generate_route_for_provider") as mock_gen:
             mock_gen.return_value = "ROUTE"
 
             run_cli(
@@ -83,6 +85,7 @@ def test_cli_both_origin_and_destination():
             )
 
             mock_gen.assert_called_with(
+                "google",
                 12345,
                 origin_address="Lewiston, ME",
                 destination_override="Bangor, ME",

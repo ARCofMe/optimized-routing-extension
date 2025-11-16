@@ -16,7 +16,8 @@ def test_route_for_user():
     assert isinstance(assignments, list)
 
     # Should always return a URL or placeholder text
-    route = routing.generate_google_route(
+    route = routing.generate_route_for_provider(
+        "google",
         uid,
         origin_address=origin,
         destination_override=None,

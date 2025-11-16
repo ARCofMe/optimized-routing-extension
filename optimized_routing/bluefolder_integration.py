@@ -12,8 +12,18 @@ import time
 import xml.etree.ElementTree as ET
 import re
 from functools import wraps
-from dotenv import load_dotenv
-from requests.exceptions import HTTPError
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        return None
+try:
+    from requests.exceptions import HTTPError
+except ImportError:
+    class HTTPError(Exception):
+        def __init__(self, response=None):
+            self.response = response
+            super().__init__("HTTPError")
 
 from bluefolder_api.client import BlueFolderClient
 from optimized_routing.utils.cache_manager import CacheManager

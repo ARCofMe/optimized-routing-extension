@@ -149,10 +149,9 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
         origin and an optimized job order.
 
         Notes:
-        - Uses Google Directions API `optimize_waypoints=True` via
-          `get_optimized_route`.
-        - Service windows (AM/PM/ALL_DAY) are currently *not* enforced as
-          hard constraints; they’re informational only.
+        - If multiple service windows are present, segments are optimized per-window
+          and concatenated in window order (AM → ALL_DAY → PM) to honor timing.
+        - If only one window is present, full-route optimization is attempted.
         """
         # 1) De-duplicate the stops (removes any AM/PM duplicate SRs, etc.)
         unique_stops = self.deduplicate_stops()
@@ -161,41 +160,56 @@ class GoogleMapsRoutingManager(BaseRoutingManager):
         if not self.stops:
             raise ValueError("No stops available to generate a route.")
 
-        # Extract just the address strings in their current (insertion) order
-        addresses = [s.address for s in self.stops]
+        grouped = self.grouped_stops()
 
-        # 2) Try to get an optimized route from Google
-        try:
-            cfg = RouteConfig()
-            # Always start from our configured origin
-            cfg.start_location = self.origin
-
-            # Destination preference: explicit override > return to origin > last job
-            if self.destination_override:
-                cfg.end_location = self.destination_override
-            elif self.end_at_origin:
-                cfg.end_location = self.origin
-            else:
-                cfg.end_location = addresses[-1]
-
-            optimized = self.get_optimized_route(addresses, config=cfg)
-
-            origin = optimized["origin"]
-            destination = optimized["destination"]
-            waypoints = optimized["waypoints"]
-
-        except Exception as e:
-            # If anything fails (quota, network, etc.), fall back to
-            # the “as-scheduled” order instead of crashing.
-            logger.warning(
-                f"[ROUTING] Optimization failed, using raw order instead: {e}"
+        # If we have multiple windows, optimize each window independently and concatenate
+        if len(grouped) > 1:
+            logger.info(
+                f"[ROUTING] Enforcing service windows across {len(grouped)} segments."
             )
-            origin = self.origin
+            addresses: list[str] = []
+            for group in grouped:
+                seg = [s.address for s in group]
+                try:
+                    seg = self.optimize_within_window(seg, start=seg[0])
+                except Exception as e:  # pragma: no cover - defensive
+                    logger.warning(f"[ROUTING] Window optimize failed, using raw order: {e}")
+                addresses.extend(seg)
+
+            origin = self.origin or addresses[0]
             if self.destination_override:
                 destination = self.destination_override
             else:
                 destination = self.origin if self.end_at_origin else addresses[-1]
             waypoints = addresses
+
+        else:
+            # Single window → allow full-route optimization
+            addresses = [s.address for s in self.stops]
+            try:
+                cfg = RouteConfig()
+                cfg.start_location = self.origin
+                if self.destination_override:
+                    cfg.end_location = self.destination_override
+                elif self.end_at_origin:
+                    cfg.end_location = self.origin
+                else:
+                    cfg.end_location = addresses[-1]
+
+                optimized = self.get_optimized_route(addresses, config=cfg)
+                origin = optimized["origin"]
+                destination = optimized["destination"]
+                waypoints = optimized["waypoints"]
+            except Exception as e:
+                logger.warning(
+                    f"[ROUTING] Optimization failed, using raw order instead: {e}"
+                )
+                origin = self.origin
+                if self.destination_override:
+                    destination = self.destination_override
+                else:
+                    destination = self.origin if self.end_at_origin else addresses[-1]
+                waypoints = addresses
 
         # 3) Build the URL in either query-string or path style
         if self.use_query_string:

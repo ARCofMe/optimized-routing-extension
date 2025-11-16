@@ -8,7 +8,7 @@ import os
 import logging
 from typing import List
 import requests
-from .base import RouteStop
+from .base import RouteStop, ServiceWindow
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,8 @@ class MapboxRoutingManager:
         if not self.stops:
             raise ValueError("No stops available to generate a route.")
 
+        # Honor service windows: AM → ALL_DAY → PM
+        ordered_stops = sorted(self.stops, key=lambda s: s.window.value)
         waypoints = []
 
         # 1️⃣ Add origin as the first stop
@@ -75,7 +77,7 @@ class MapboxRoutingManager:
             waypoints.append(f"{lon},{lat}")
 
         # 2️⃣ Add all job stops
-        for stop in self.stops:
+        for stop in ordered_stops:
             lon, lat = self._geocode(stop.address)
             if lon is not None:
                 waypoints.append(f"{lon},{lat}")

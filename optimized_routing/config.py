@@ -9,6 +9,7 @@ for customizing route behavior and origin/destination overrides.
 
 from typing import Optional
 from pydantic import BaseModel, Field
+import os
 
 
 class RouteConfig(BaseModel):
@@ -35,3 +36,31 @@ class RouteConfig(BaseModel):
     end_location: Optional[str] = Field(
         default=None, description="Custom ending point for the route."
     )
+
+
+class Settings(BaseModel):
+    """Typed configuration loaded from environment variables."""
+
+    bluefolder_api_key: str = Field(default_factory=lambda: os.getenv("BLUEFOLDER_API_KEY", ""))
+    bluefolder_base_url: str = Field(
+        default_factory=lambda: os.getenv(
+            "BLUEFOLDER_BASE_URL", "https://your.bluefolder.com/api/2.0"
+        )
+    )
+
+    google_api_key: str = Field(default_factory=lambda: os.getenv("GOOGLE_MAPS_API_KEY", ""))
+    mapbox_api_key: str = Field(default_factory=lambda: os.getenv("MAPBOX_API_KEY", ""))
+    osm_base_url: str = Field(
+        default_factory=lambda: os.getenv("OSM_BASE_URL", "https://router.project-osrm.org")
+    )
+
+    cf_shortener_url: str = Field(default_factory=lambda: os.getenv("CF_SHORTENER_URL", ""))
+
+    default_origin: str = Field(default_factory=lambda: os.getenv("DEFAULT_ORIGIN", "South Paris, ME"))
+    default_provider: str = Field(default_factory=lambda: os.getenv("DEFAULT_PROVIDER", "google").lower())
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+settings = Settings()

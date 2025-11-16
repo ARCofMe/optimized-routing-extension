@@ -3,7 +3,7 @@ import sys, os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from routing import shorten_route_url
+from optimized_routing.routing import shorten_route_url
 
 # Make sure your .env has:
 # CF_SHORTENER_URL=https://route-shortener.<you>.workers.dev

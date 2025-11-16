@@ -5,7 +5,7 @@ import sys, os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from bluefolder_integration import BlueFolderIntegration
+from optimized_routing.bluefolder_integration import BlueFolderIntegration
 from bluefolder_api.client import BlueFolderClient
 
 from dotenv import load_dotenv

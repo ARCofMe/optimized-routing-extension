@@ -15,8 +15,10 @@ from typing import List, Optional
 import requests
 from optimized_routing.bluefolder_integration import BlueFolderIntegration
 from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
+from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
+from optimized_routing.manager.osm_manager import OSMRoutingManager
 from optimized_routing.manager.base import RouteStop, ServiceWindow
-from optimized_routing.config import RouteConfig
+from optimized_routing.config import RouteConfig, settings
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +117,9 @@ def bluefolder_to_routestops(assignments: List[dict]) -> List[RouteStop]:
             if stop.window.value < unique[key].window.value:
                 unique[key] = stop
 
+    # Preserve a consistent order while respecting service windows (AM -> PM -> ALL_DAY)
     stops = list(unique.values())
+    stops.sort(key=lambda s: s.window.value)
 
     logger.debug(
         f"Converted {len(raw_stops)} assignments → {len(stops)} unique RouteStops."
@@ -147,27 +151,13 @@ def dedupe_stops(stops):
 # ---------------------------------------------------------------------------
 
 
-def generate_google_route(
+def generate_route_for_provider(
+    provider: str,
     user_id: int,
     origin_address: Optional[str] = None,
     destination_override: Optional[str] = None,
 ) -> str:
-    """
-    Generate a Google Maps route URL for a technician’s assignments today.
-
-    Steps:
-        1. Fetch today's BlueFolder assignments for the given user.
-        2. Convert them into RouteStop objects.
-        3. Build an optimized Google Maps route URL.
-
-    Args:
-        user_id (int): The BlueFolder user ID to fetch assignments for.
-        origin_address (Optional[str]): Optional override for route start.
-        destination_override (Optional[str]): Optional final destination override.
-
-    Returns:
-        str: A fully formed Google Maps route URL or a message if no assignments found.
-    """
+    """Generate a route URL for the selected provider."""
     bf = BlueFolderIntegration()
     assignments = bf.get_user_assignments_today(user_id)
 
@@ -178,10 +168,29 @@ def generate_google_route(
     stops = bluefolder_to_routestops(assignments)
     stops = dedupe_stops(stops)
 
-    manager = GoogleMapsRoutingManager(
-        origin=origin_address or "South Paris, ME",
-        destination_override=destination_override,
-    )
+    provider = provider.lower()
+    if provider == "google":
+        if not settings.google_api_key:
+            raise ValueError("GOOGLE_MAPS_API_KEY is required for google provider")
+        manager = GoogleMapsRoutingManager(
+            origin=origin_address or settings.default_origin,
+            destination_override=destination_override,
+        )
+    elif provider == "mapbox":
+        if not settings.mapbox_api_key:
+            raise ValueError("MAPBOX_API_KEY is required for mapbox provider")
+        manager = MapboxRoutingManager(
+            origin=origin_address or settings.default_origin,
+            destination_override=destination_override,
+        )
+    elif provider == "osm":
+        manager = OSMRoutingManager(
+            origin=origin_address or settings.default_origin,
+            destination_override=destination_override,
+        )
+    else:
+        raise ValueError(f"Unknown provider '{provider}'")
+
     manager.add_stops(stops)
 
     route_url = manager.build_route_url()
