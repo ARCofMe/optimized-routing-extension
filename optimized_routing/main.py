@@ -85,17 +85,16 @@ def run_daily_routing(
 
         logger.info(f"---- Processing {name} (ID: {uid}) ----")
 
-        # Resolve origin
+        # Resolve origin; allow routing layer to apply its own default if missing.
+        origin = origin_override or bf.get_user_origin_address(uid)
         if origin_override:
-            origin = origin_override
-            logger.info("[ORIGIN] Using CLI overridden origin: %s", origin)
+            logger.info("[ORIGIN] Using CLI overridden origin: %s", origin_override)
+        elif origin:
+            logger.info("[ORIGIN] Using user-specific origin: %s", origin)
         else:
-            origin = bf.get_user_origin_address(uid)
-            if origin:
-                logger.info("[ORIGIN] Using user-specific origin: %s", origin)
-            else:
-                origin = "61 Portland Rd, Gray, ME"
-                logger.info("[ORIGIN] Fallback origin used: %s", origin)
+            logger.info(
+                "[ORIGIN] No origin found; using routing default inside generator."
+            )
 
         # Destination optional
         destination = destination_override or None

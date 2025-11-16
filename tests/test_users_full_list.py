@@ -1,48 +1,37 @@
-"""
-Forces a 'full' user list call to BlueFolder, with explicit authentication.
-"""
+"""Optional live test hitting BlueFolder listType='full'; requires credentials."""
 
+import os
 import xml.etree.ElementTree as ET
+import pytest
 from bluefolder_api.client import BlueFolderClient
-from pprint import pprint
 
-print("\n🔐 Testing BlueFolder user list with listType='full' (authenticated)...\n")
 
-client = BlueFolderClient()
-
-xml_payload = """<request>
-    <userList>
-        <listType>full</listType>
-    </userList>
-</request>"""
-
-url = f"{client.base_url}/users/list.aspx"
-
-# ✅ FIX: include Basic Auth manually
-response = client.session.post(
-    url,
-    data=xml_payload.encode("utf-8"),
-    headers={"Content-Type": "application/xml"},
-    auth=(client.api_key, "x"),
+@pytest.mark.skipif(
+    not os.getenv("RUN_LIVE_BF_TESTS"),
+    reason="Set RUN_LIVE_BF_TESTS=1 with real BlueFolder credentials to run.",
 )
+def test_users_full_list_live():
+    """Exercise listType=full endpoint and ensure users are returned."""
+    client = BlueFolderClient()
 
-print(f"HTTP {response.status_code}")
-print("Raw response (first 500 chars):\n", response.text[:500], "...\n")
+    xml_payload = """<request>
+        <userList>
+            <listType>full</listType>
+        </userList>
+    </request>"""
 
-if response.status_code != 200:
-    raise SystemExit("❌ Request failed. Check API key or base URL.")
+    url = f"{client.base_url}/users/list.aspx"
 
-root = ET.fromstring(response.text)
-users = [{child.tag: child.text for child in u} for u in root.findall(".//user")]
-
-print(f"✅ Parsed {len(users)} users from listType='full'\n")
-
-if users:
-    print("🧩 Available keys in first user record:")
-    print(sorted(users[0].keys()))
-    print()
-    pprint(users[0])
-else:
-    print(
-        "⚠️ No <user> elements returned — permission may still restrict full list access."
+    response = client.session.post(
+        url,
+        data=xml_payload.encode("utf-8"),
+        headers={"Content-Type": "application/xml"},
+        auth=(client.api_key, "x"),
     )
+
+    assert response.status_code == 200, f"HTTP {response.status_code}: {response.text}"
+
+    root = ET.fromstring(response.text)
+    users = [{child.tag: child.text for child in u} for u in root.findall(".//user")]
+
+    assert users, "Expected at least one user from listType=full"
