@@ -12,6 +12,7 @@ This package automates optimized route generation for BlueFolder technician assi
 - Supports provider selection (`google`, `mapbox`, `osm`); Google is default
 - Orders stops by service window (AM before PM before ALL_DAY)
 - CLI interface for routing or previewing stops
+- Assignments fetch supports custom date ranges (defaults to today)
 - Optional Cloudflare Worker URL shortener
 - Saves final route URL in BlueFolder `link2Url`
 
@@ -62,6 +63,10 @@ python3 -m optimized_routing.main --user 33538043
 # Skip BF updates (dry run)
 --dry-run
 ```
+
+### Date ranges for assignments
+
+The core fetcher `get_user_assignments_range(user_id, start_date, end_date, date_range_type="scheduled")` now accepts explicit BlueFolder-formatted dates (e.g., `2025.11.08 12:00 AM`). If omitted, it defaults to today's range (`12:00 AM` → `11:59 PM`). The CLI currently always uses the default (today); add flags if you need range selection at the command line.
 
 ### Preview mode (no BlueFolder updates)
 ```

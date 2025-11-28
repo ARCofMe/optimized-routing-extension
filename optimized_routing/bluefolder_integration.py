@@ -162,19 +162,32 @@ class BlueFolderIntegration:
     # ASSIGNMENTS
     # ==================================================================
 
-    def get_user_assignments_today(self, user_id: int) -> list[dict]:
-        """Return the enriched assignment list for the current day."""
-        today = date.today().strftime("%Y.%m.%d")
-        start = f"{today} 12:00 AM"
-        end = f"{today} 11:59 PM"
+    def get_user_assignments_range(
+        self,
+        user_id: int,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        date_range_type: str = "scheduled",
+    ) -> list[dict]:
+        """
+        Return the enriched assignment list for a given range (defaults to today).
+        Dates must be in BlueFolder format: YYYY.MM.DD HH:MM AM/PM.
+        """
+        if not start_date or not end_date:
+            today = date.today().strftime("%Y.%m.%d")
+            start_date = f"{today} 12:00 AM"
+            end_date = f"{today} 11:59 PM"
 
-        logger.info(f"Fetching assignments {start} → {end}")
+        logger.info(f"Fetching assignments {start_date} → {end_date} (type={date_range_type})")
 
         sr_cache = CacheManager("service_requests", ttl_minutes=60)
         loc_cache = CacheManager("locations", ttl_minutes=120)
 
         assignments = self._safe_assignments_for_user(
-            user_id=user_id, start_date=start, end_date=end, date_range_type="scheduled"
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            date_range_type=date_range_type,
         )
         if not assignments:
             return []
@@ -246,6 +259,10 @@ class BlueFolderIntegration:
             f"[CACHE] saved: {len(sr_cache.data)} SRs, {len(loc_cache.data)} locations"
         )
         return enriched
+
+    def get_user_assignments_today(self, user_id: int) -> list[dict]:
+        """Return the enriched assignment list for the current day."""
+        return self.get_user_assignments_range(user_id=user_id)
 
     # ==================================================================
     # FULL USER LIST (RAW XML) — safe version
