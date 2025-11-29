@@ -66,7 +66,12 @@ python3 -m optimized_routing.main --user 33538043
 
 ### Date ranges for assignments
 
-The core fetcher `get_user_assignments_range(user_id, start_date, end_date, date_range_type="scheduled")` now accepts explicit BlueFolder-formatted dates (e.g., `2025.11.08 12:00 AM`). If omitted, it defaults to today's range (`12:00 AM` → `11:59 PM`). The CLI currently always uses the default (today); add flags if you need range selection at the command line.
+The core fetcher `get_user_assignments_range(user_id, start_date, end_date, date_range_type="scheduled")` accepts explicit BlueFolder-formatted dates (e.g., `2025.11.08 12:00 AM`). If omitted, it defaults to today's range (`12:00 AM` → `11:59 PM`). CLI flags:
+```
+--start-date "2025.11.08 12:00 AM"
+--end-date   "2025.11.08 11:59 PM"
+--date-range-type scheduled|created|completed   # default: scheduled
+```
 
 ### Preview mode (no BlueFolder updates)
 ```

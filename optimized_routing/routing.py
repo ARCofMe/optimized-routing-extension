@@ -156,10 +156,11 @@ def generate_route_for_provider(
     user_id: int,
     origin_address: Optional[str] = None,
     destination_override: Optional[str] = None,
+    assignments: Optional[List[dict]] = None,
 ) -> str:
     """Generate a route URL for the selected provider."""
     bf = BlueFolderIntegration()
-    assignments = bf.get_user_assignments_today(user_id)
+    assignments = assignments or bf.get_user_assignments_today(user_id)
 
     if not assignments:
         logger.warning("No assignments found for user %s", user_id)

@@ -63,6 +63,9 @@ def run_daily_routing(
     destination_override: str | None = None,
     provider: str = settings.default_provider,
     dry_run: bool = False,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    date_range_type: str = "scheduled",
 ):
     """Main runner for routing job."""
 
@@ -103,6 +106,17 @@ def run_daily_routing(
         # Destination optional
         destination = destination_override or None
 
+        # Fetch assignments for the desired date range (defaults to today)
+        assignments = bf.get_user_assignments_range(
+            uid,
+            start_date=start_date,
+            end_date=end_date,
+            date_range_type=date_range_type,
+        )
+        if not assignments:
+            logger.info("[SKIP] No assignments for %s in range %s → %s", name, start_date, end_date)
+            continue
+
         # Select provider manager
         # Generate long route URL using selected provider
         try:
@@ -111,15 +125,11 @@ def run_daily_routing(
                 uid,
                 origin_address=origin,
                 destination_override=destination,
+                assignments=assignments,
             )
             logger.info("[ROUTE] Generated URL: %s [run=%s, user=%s]", long_url, run_id, uid)
         except Exception as e:
             logger.exception("[ERROR] Route generation failed for %s: %s [run=%s]", uid, e, run_id)
-            continue
-
-        # Skip users with no assignments
-        if not long_url or "No assignments" in long_url:
-            logger.info("[SKIP] No assignments for %s — skipping.", name)
             continue
 
         # Shorten
@@ -170,6 +180,9 @@ def handle_preview_mode(args):
 def dispatch_cli(args):
     provider = args.provider or settings.default_provider
     dry_run = bool(getattr(args, "dry_run", False))
+    start_date = getattr(args, "start_date", None)
+    end_date = getattr(args, "end_date", None)
+    date_range_type = getattr(args, "date_range_type", "scheduled")
     # PREVIEW MODE
     if args.preview_stops:
         handle_preview_mode(args)
@@ -183,6 +196,9 @@ def dispatch_cli(args):
             destination_override=args.destination,
             provider=provider or "google",
             dry_run=dry_run,
+            start_date=start_date,
+            end_date=end_date,
+            date_range_type=date_range_type,
         )
 
     # FULL RUN
@@ -192,6 +208,9 @@ def dispatch_cli(args):
         destination_override=args.destination,
         provider=provider or "google",
         dry_run=dry_run,
+        start_date=start_date,
+        end_date=end_date,
+        date_range_type=date_range_type,
     )
 
 
@@ -218,6 +237,20 @@ def __main__():
         "--dry-run",
         action="store_true",
         help="Do not update BlueFolder with generated routes.",
+    )
+    parser.add_argument(
+        "--start-date",
+        help='Optional start date (BlueFolder format), e.g. "2025.11.08 12:00 AM". Defaults to today.',
+    )
+    parser.add_argument(
+        "--end-date",
+        help='Optional end date (BlueFolder format), e.g. "2025.11.08 11:59 PM". Defaults to today.',
+    )
+    parser.add_argument(
+        "--date-range-type",
+        choices=["scheduled", "created", "completed"],
+        default="scheduled",
+        help="Which date field to filter on (default: scheduled).",
     )
 
     args = parser.parse_args()
