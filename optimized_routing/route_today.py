@@ -8,12 +8,17 @@ import os
 from datetime import date
 
 from optimized_routing.bluefolder_integration import BlueFolderIntegration
-from optimized_routing.routing import bluefolder_to_routestops, shorten_route_url
-from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
+from optimized_routing.config import settings
+from optimized_routing.routing import (
+    bluefolder_to_routestops,
+    shorten_route_url,
+    generate_route_for_provider,
+)
 
 
 # 🔹 CHANGE THIS TO YOUR BlueFolder userId
 MY_USER_ID = int(os.getenv("MY_BF_USER_ID", "33538043"))  # your ID or env override
+ROUTE_PROVIDER = os.getenv("ROUTE_PROVIDER", settings.default_provider)
 
 
 def route_my_calls():
@@ -39,12 +44,15 @@ def route_my_calls():
     origin = bf.get_user_origin_address(MY_USER_ID) or "South Paris, ME"
     print("\n🏁 Origin:", origin)
 
-    # 4️⃣ Build Google Maps route
-    mgr = GoogleMapsRoutingManager(origin=origin)
-    mgr.add_stops(stops)
-    url = mgr.build_route_url()
+    # 4️⃣ Build a route URL using the default provider
+    url = generate_route_for_provider(
+        ROUTE_PROVIDER,
+        MY_USER_ID,
+        origin_address=origin,
+        assignments=assignments,
+    )
 
-    print("\n🗺️  Google Maps Route URL (before shortening):")
+    print("\n🗺️  Route URL (before shortening):")
     print(url)
 
     # 5️⃣ Try to shorten with Cloudflare Worker

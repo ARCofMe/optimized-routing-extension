@@ -75,7 +75,12 @@ if "pydantic" not in sys.modules:
     def Field(default=None, **kwargs):
         return default
 
-    sys.modules["pydantic"] = type("pydantic", (), {"BaseModel": BaseModel, "Field": Field})
+    def validator(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
+    sys.modules["pydantic"] = type("pydantic", (), {"BaseModel": BaseModel, "Field": Field, "validator": validator})
 
 
 @pytest.fixture(autouse=True)
@@ -83,3 +88,18 @@ def patch_env(monkeypatch):
     """Provide dummy env vars for all tests."""
     monkeypatch.setenv("BLUEFOLDER_API_KEY", "test-key")
     monkeypatch.setenv("BLUEFOLDER_ACCOUNT_NAME", "testaccount")
+    monkeypatch.setenv("GEOAPIFY_API_KEY", "test-geoapify")
+    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "test-google")
+    monkeypatch.setenv("MAPBOX_API_KEY", "test-mapbox")
+
+    # Keep in-memory settings in sync for modules that have already been imported.
+    try:
+        from optimized_routing import config as routing_config
+
+        routing_config.settings.geoapify_api_key = "test-geoapify"
+        routing_config.settings.google_api_key = "test-google"
+        routing_config.settings.mapbox_api_key = "test-mapbox"
+        routing_config.settings.default_provider = "geoapify"
+    except Exception:
+        # Tests may stub out config; ignore failures here.
+        pass

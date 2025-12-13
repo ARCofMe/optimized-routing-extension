@@ -12,6 +12,7 @@ import time
 import xml.etree.ElementTree as ET
 import re
 from functools import wraps
+from urllib.parse import urlparse
 try:
     from dotenv import load_dotenv
 except ImportError:
@@ -27,6 +28,7 @@ except ImportError:
 
 from bluefolder_api.client import BlueFolderClient
 from optimized_routing.utils.cache_manager import CacheManager
+from optimized_routing.config import settings
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -92,9 +94,53 @@ def bluefolder_safe(fn):
 class BlueFolderIntegration:
     """High level facade around BlueFolder APIs with caching and retries."""
 
-    def __init__(self, client: BlueFolderClient = None):
-        """Create the integration wrapper, optionally injecting a client."""
-        self.client = client or BlueFolderClient()
+    def __init__(self, client: BlueFolderClient = None, base_url: str | None = None):
+        """
+        Create the integration wrapper, optionally injecting a client.
+
+        If no client is provided, we try to honor a configured base_url so
+        deployments with vanity BlueFolder subdomains work without code changes.
+        """
+        if client:
+            self.client = client
+            return
+
+        base_url = (base_url or settings.bluefolder_base_url or "").rstrip("/")
+        client_kwargs = {}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+
+        try:
+            self.client = BlueFolderClient(**client_kwargs)
+            if base_url:
+                logger.info("[BF] Using custom base URL: %s", base_url)
+        except TypeError:
+            # Older SDKs may not accept kwargs; try positional, then fallback.
+            try:
+                if base_url:
+                    self.client = BlueFolderClient(base_url)
+                    logger.info("[BF] Using custom base URL (positional): %s", base_url)
+                else:
+                    self.client = BlueFolderClient()
+            except Exception as exc:  # pragma: no cover - defensive
+                # Last resort: parse subdomain from base_url and set env for legacy client
+                parsed_account = None
+                if base_url:
+                    host = urlparse(base_url).hostname or ""
+                    if host.endswith(".bluefolder.com"):
+                        parsed_account = host.split(".bluefolder.com")[0]
+                        os.environ.setdefault("BLUEFOLDER_ACCOUNT_NAME", parsed_account)
+
+                if parsed_account:
+                    logger.warning(
+                        "[BF] Client missing base_url support; using parsed account '%s' from %s",
+                        parsed_account,
+                        base_url,
+                    )
+                else:
+                    logger.warning("[BF] Could not set base URL (%s); falling back to defaults: %s", base_url, exc)
+
+                self.client = BlueFolderClient()
 
     # ==================================================================
     # SAFE HELPERS WRAPPING ALL SDK CALLS

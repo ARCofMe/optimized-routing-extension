@@ -18,6 +18,28 @@ def test_generate_route_for_provider_unknown_provider(monkeypatch):
         generate_route_for_provider("bogus", 1)
 
 
+def test_generate_route_for_provider_geoapify(monkeypatch):
+    class DummyManager:
+        def __init__(self, origin, destination_override=None):
+            self.origin = origin
+            self.destination_override = destination_override
+            self.stops = []
+
+        def add_stops(self, stops):
+            self.stops = stops
+
+        def build_route_url(self):
+            return "geo://route"
+
+    monkeypatch.setattr("optimized_routing.routing.BlueFolderIntegration", lambda: DummyIntegration())
+    monkeypatch.setattr("optimized_routing.routing.GeoapifyRoutingManager", DummyManager)
+    from optimized_routing import routing
+    routing.settings.geoapify_api_key = "dummy"
+
+    url = generate_route_for_provider("geoapify", 1, origin_address="Origin")
+    assert url == "geo://route"
+
+
 def test_generate_route_for_provider_google(monkeypatch):
     # Mock manager to avoid real gmaps calls
     class DummyManager:

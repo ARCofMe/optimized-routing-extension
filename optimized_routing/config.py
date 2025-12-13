@@ -8,8 +8,10 @@ for customizing route behavior and origin/destination overrides.
 """
 
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 import os
+
+VALID_PROVIDERS = {"geoapify", "google", "mapbox", "osm"}
 
 
 class RouteConfig(BaseModel):
@@ -48,6 +50,7 @@ class Settings(BaseModel):
         )
     )
 
+    geoapify_api_key: str = Field(default_factory=lambda: os.getenv("GEOAPIFY_API_KEY", ""))
     google_api_key: str = Field(default_factory=lambda: os.getenv("GOOGLE_MAPS_API_KEY", ""))
     mapbox_api_key: str = Field(default_factory=lambda: os.getenv("MAPBOX_API_KEY", ""))
     osm_base_url: str = Field(
@@ -57,7 +60,14 @@ class Settings(BaseModel):
     cf_shortener_url: str = Field(default_factory=lambda: os.getenv("CF_SHORTENER_URL", ""))
 
     default_origin: str = Field(default_factory=lambda: os.getenv("DEFAULT_ORIGIN", "South Paris, ME"))
-    default_provider: str = Field(default_factory=lambda: os.getenv("DEFAULT_PROVIDER", "google").lower())
+    default_provider: str = Field(default_factory=lambda: os.getenv("DEFAULT_PROVIDER", "geoapify").lower())
+
+    @validator("default_provider", pre=True, always=True)
+    def validate_default_provider(cls, v):
+        provider = (v or "").lower()
+        if provider not in VALID_PROVIDERS:
+            raise ValueError(f"DEFAULT_PROVIDER must be one of {sorted(VALID_PROVIDERS)}")
+        return provider
 
     class Config:
         arbitrary_types_allowed = True

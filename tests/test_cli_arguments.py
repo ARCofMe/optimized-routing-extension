@@ -6,6 +6,7 @@ from io import StringIO
 from unittest.mock import patch, MagicMock
 
 import optimized_routing.main as main
+from unittest.mock import ANY
 
 
 def run_cli(args: list[str]):
@@ -30,16 +31,18 @@ def test_cli_origin_override():
         inst.get_active_users.return_value = [{"userId": "12345"}]
         inst.get_user_origin_address.return_value = None
 
+        main.settings.default_provider = "geoapify"
         with patch("optimized_routing.main.generate_route_for_provider") as mock_gen:
             mock_gen.return_value = "FAKE_URL"
 
             run_cli(["--user", "12345", "--origin", "Lewiston, ME"])
 
             mock_gen.assert_called_with(
-                "google",
+                "geoapify",
                 12345,
                 origin_address="Lewiston, ME",
                 destination_override=None,
+                assignments=ANY,
             )
 
 
@@ -50,16 +53,18 @@ def test_cli_destination_override():
         inst.get_active_users.return_value = [{"userId": "12345"}]
         inst.get_user_origin_address.return_value = None
 
+        main.settings.default_provider = "geoapify"
         with patch("optimized_routing.main.generate_route_for_provider") as mock_gen:
             mock_gen.return_value = "FAKE_URL"
 
             run_cli(["--user", "12345", "--destination", "Portland, ME"])
 
             mock_gen.assert_called_with(
-                "google",
+                "geoapify",
                 12345,
                 origin_address=None,
                 destination_override="Portland, ME",
+                assignments=ANY,
             )
 
 
@@ -70,6 +75,7 @@ def test_cli_both_origin_and_destination():
         inst.get_active_users.return_value = [{"userId": "12345"}]
         inst.get_user_origin_address.return_value = None
 
+        main.settings.default_provider = "geoapify"
         with patch("optimized_routing.main.generate_route_for_provider") as mock_gen:
             mock_gen.return_value = "ROUTE"
 
@@ -85,10 +91,11 @@ def test_cli_both_origin_and_destination():
             )
 
             mock_gen.assert_called_with(
-                "google",
+                "geoapify",
                 12345,
                 origin_address="Lewiston, ME",
                 destination_override="Bangor, ME",
+                assignments=ANY,
             )
 
 
@@ -120,3 +127,23 @@ def test_cli_preview_stops_all():
             run_cli(["--preview-stops", "all"])
 
             assert mock_prev.call_count == 3
+
+
+def test_cli_relative_monday_sets_dates():
+    """Relative --date monday should compute start/end dates."""
+    with patch("optimized_routing.main.BlueFolderIntegration") as MockBF:
+        inst = MockBF.return_value
+        inst.get_active_users.return_value = [{"userId": "12345"}]
+        inst.get_user_origin_address.return_value = None
+        inst.get_user_assignments_range.return_value = [{"serviceRequestId": "1"}]
+
+        with patch("optimized_routing.main.generate_route_for_provider") as mock_gen:
+            mock_gen.return_value = "FAKE_URL"
+
+            run_cli(["--user", "12345", "--date", "monday"])
+
+        expected_start, expected_end = main.resolve_relative_date("monday")
+
+        inst.get_user_assignments_range.assert_called_with(
+            12345, start_date=expected_start, end_date=expected_end, date_range_type="scheduled"
+        )

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class RoutingProvider(Enum):
+    GEOAPIFY = "geoapify"
     GOOGLE = "google"
     MAPBOX = "mapbox"
     OSM = "osm"

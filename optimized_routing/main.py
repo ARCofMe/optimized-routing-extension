@@ -3,7 +3,7 @@ Main CLI entry point for Optimized Routing Extension.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import argparse
 import uuid
 
@@ -15,6 +15,7 @@ from optimized_routing.routing import (
 )
 
 from optimized_routing.config import settings
+from optimized_routing.manager.geoapify_manager import GeoapifyRoutingManager
 from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
 from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
 from optimized_routing.manager.osm_manager import OSMRoutingManager
@@ -29,13 +30,40 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def resolve_relative_date(relative: str) -> tuple[str, str]:
+    """
+    Convert a relative date label into BlueFolder-friendly start/end strings.
+    Supported: today, tomorrow, monday (next or current Monday).
+    """
+    today = date.today()
+    if relative == "today":
+        target = today
+    elif relative == "tomorrow":
+        target = today + timedelta(days=1)
+    elif relative == "monday":
+        # Next Monday; if already Monday, keep today
+        days_ahead = (0 - today.weekday()) % 7
+        target = today if days_ahead == 0 else today + timedelta(days=days_ahead)
+    else:
+        raise ValueError(f"Unsupported relative date '{relative}'")
+
+    start = target.strftime("%Y.%m.%d 12:00 AM")
+    end = target.strftime("%Y.%m.%d 11:59 PM")
+    return start, end
+
+
 # -------------------------------------------------------------------
 # Routing Manager Factory
 # -------------------------------------------------------------------
 def get_routing_manager(provider: str, origin: str, destination: str | None):
     provider = provider.lower()
 
-    if provider == "google":
+    if provider == "geoapify":
+        return GeoapifyRoutingManager(
+            origin=origin,
+            destination_override=destination,
+        )
+    elif provider == "google":
         return GoogleMapsRoutingManager(
             origin=origin,
             destination_override=destination,
@@ -69,6 +97,7 @@ def run_daily_routing(
 ):
     """Main runner for routing job."""
 
+    provider = (provider or settings.default_provider).lower()
     run_id = uuid.uuid4().hex[:8]
     logger.info("[START] Route generation job %s at %s", run_id, datetime.now())
 
@@ -89,19 +118,18 @@ def run_daily_routing(
     for user in users:
         uid = int(user["userId"])
         name = f"{user.get('firstName', '')} {user.get('lastName', '')}".strip()
+        log_prefix = f"[run={run_id} provider={provider} user={uid}]"
 
-        logger.info(f"---- Processing {name} (ID: {uid}) [run={run_id}] ----")
+        logger.info(f"---- Processing {name} (ID: {uid}) {log_prefix} ----")
 
         # Resolve origin; allow routing layer to apply its own default if missing.
         origin = origin_override or bf.get_user_origin_address(uid)
         if origin_override:
-            logger.info("[ORIGIN] Using CLI overridden origin: %s", origin_override)
+            logger.info("%s [ORIGIN] Using CLI overridden origin: %s", log_prefix, origin_override)
         elif origin:
-            logger.info("[ORIGIN] Using user-specific origin: %s", origin)
+            logger.info("%s [ORIGIN] Using user-specific origin: %s", log_prefix, origin)
         else:
-            logger.info(
-                "[ORIGIN] No origin found; using routing default inside generator."
-            )
+            logger.info("%s [ORIGIN] No origin found; using routing default inside generator.", log_prefix)
 
         # Destination optional
         destination = destination_override or None
@@ -114,7 +142,7 @@ def run_daily_routing(
             date_range_type=date_range_type,
         )
         if not assignments:
-            logger.info("[SKIP] No assignments for %s in range %s → %s", name, start_date, end_date)
+            logger.info("%s [SKIP] No assignments for %s in range %s → %s", log_prefix, name, start_date, end_date)
             continue
 
         # Select provider manager
@@ -127,28 +155,28 @@ def run_daily_routing(
                 destination_override=destination,
                 assignments=assignments,
             )
-            logger.info("[ROUTE] Generated URL: %s [run=%s, user=%s]", long_url, run_id, uid)
+            logger.info("%s [ROUTE] Generated URL: %s", log_prefix, long_url)
         except Exception as e:
-            logger.exception("[ERROR] Route generation failed for %s: %s [run=%s]", uid, e, run_id)
+            logger.exception("%s [ERROR] Route generation failed: %s", log_prefix, e)
             continue
 
         # Shorten
         try:
             short = shorten_route_url(long_url)
-            logger.info("[SHORT] %s → %s", long_url[:60], short)
+            logger.info("%s [SHORT] %s → %s", log_prefix, long_url[:60], short)
         except Exception as e:
-            logger.exception("[ERROR] Shortener failed: %s", e)
+            logger.exception("%s [ERROR] Shortener failed: %s", log_prefix, e)
             short = long_url
 
         # Update BlueFolder
         if dry_run:
-            logger.info("[DRY RUN] Skipping BlueFolder update for %s [run=%s]", name, run_id)
+            logger.info("%s [DRY RUN] Skipping BlueFolder update for %s", log_prefix, name)
         else:
             try:
                 bf.update_user_custom_field(uid, short)
-                logger.info("[DONE] Updated route URL for %s [run=%s]", name, run_id)
+                logger.info("%s [DONE] Updated route URL for %s", log_prefix, name)
             except Exception as e:
-                logger.error("[ERROR] BF update failed for %s: %s [run=%s]", name, e, run_id)
+                logger.error("%s [ERROR] BF update failed for %s: %s", log_prefix, name, e)
 
     logger.info("[FINISHED] Routing job complete [run=%s]", run_id)
 
@@ -182,6 +210,11 @@ def dispatch_cli(args):
     dry_run = bool(getattr(args, "dry_run", False))
     start_date = getattr(args, "start_date", None)
     end_date = getattr(args, "end_date", None)
+    relative_date = getattr(args, "date", None)
+
+    if relative_date and not start_date and not end_date:
+        start_date, end_date = resolve_relative_date(relative_date)
+
     date_range_type = getattr(args, "date_range_type", "scheduled")
     # PREVIEW MODE
     if args.preview_stops:
@@ -194,7 +227,7 @@ def dispatch_cli(args):
             user_override=int(args.user),
             origin_override=args.origin,
             destination_override=args.destination,
-            provider=provider or "google",
+            provider=provider or settings.default_provider,
             dry_run=dry_run,
             start_date=start_date,
             end_date=end_date,
@@ -206,7 +239,7 @@ def dispatch_cli(args):
         user_override=None,
         origin_override=args.origin,
         destination_override=args.destination,
-        provider=provider or "google",
+        provider=provider or settings.default_provider,
         dry_run=dry_run,
         start_date=start_date,
         end_date=end_date,
@@ -224,7 +257,12 @@ def __main__():
     parser.add_argument("--origin", help="Override origin address")
     parser.add_argument("--destination", help="Override final destination")
     parser.add_argument(
-        "--provider", choices=["google", "mapbox", "osm"], default=settings.default_provider
+        "--provider", choices=["geoapify", "google", "mapbox", "osm"], default=settings.default_provider
+    )
+    parser.add_argument(
+        "--date",
+        choices=["today", "tomorrow", "monday"],
+        help="Convenience selector for start/end dates (uses next Monday if today is not Monday).",
     )
 
     parser.add_argument(

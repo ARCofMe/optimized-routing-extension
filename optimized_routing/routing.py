@@ -1,12 +1,12 @@
 # routing.py
 """
 Primary orchestration layer for generating technician routes
-from BlueFolder assignments using Google Maps.
+from BlueFolder assignments using provider-specific managers.
 
 Responsibilities:
     - Pull technician assignments via BlueFolderIntegration.
     - Convert assignments into structured RouteStop objects.
-    - Pass stops to GoogleMapsRoutingManager for optimized routing.
+    - Pass stops to provider-specific managers for optimized routing.
 """
 import os
 import logging
@@ -14,16 +14,19 @@ from datetime import datetime
 from typing import List, Optional
 import requests
 from optimized_routing.bluefolder_integration import BlueFolderIntegration
+from optimized_routing.manager.geoapify_manager import GeoapifyRoutingManager
 from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
 from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
 from optimized_routing.manager.osm_manager import OSMRoutingManager
 from optimized_routing.manager.base import RouteStop, ServiceWindow
 from optimized_routing.config import RouteConfig, settings
+from optimized_routing.utils.cache_manager import CacheManager
 
 logger = logging.getLogger(__name__)
 
 
 CF_SHORTENER_URL = os.getenv("CF_SHORTENER_URL")
+short_cache = CacheManager("short_urls", ttl_minutes=24 * 60)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -35,8 +38,13 @@ def shorten_route_url(long_url: str) -> str:
     Hit Cloudflare Worker shortener to convert a long Google Maps route URL.
     Returns short URL, or original URL if anything fails.
     """
+    cached = short_cache.get(long_url)
+    if cached:
+        return cached
+
     if not CF_SHORTENER_URL:
-        logger.warning("[SHORTENER] CF_SHORTENER_URL not set — returning long URL")
+        logger.info("[SHORTENER] CF_SHORTENER_URL not set — returning long URL")
+        short_cache.set(long_url, long_url)
         return long_url
 
     try:
@@ -46,6 +54,7 @@ def shorten_route_url(long_url: str) -> str:
             short = data.get("short")
             if short:
                 logger.info(f"[SHORTENER] Shortened → {short}")
+                short_cache.set(long_url, short)
                 return short
             else:
                 logger.warning("[SHORTENER] Response OK but no 'short' key")
@@ -54,6 +63,7 @@ def shorten_route_url(long_url: str) -> str:
     except Exception as e:
         logger.exception(f"[SHORTENER] Exception: {e}")
 
+    short_cache.set(long_url, long_url)
     return long_url
 
 
@@ -170,7 +180,14 @@ def generate_route_for_provider(
     stops = dedupe_stops(stops)
 
     provider = provider.lower()
-    if provider == "google":
+    if provider == "geoapify":
+        if not settings.geoapify_api_key:
+            raise ValueError("GEOAPIFY_API_KEY is required for geoapify provider")
+        manager = GeoapifyRoutingManager(
+            origin=origin_address or settings.default_origin,
+            destination_override=destination_override,
+        )
+    elif provider == "google":
         if not settings.google_api_key:
             raise ValueError("GOOGLE_MAPS_API_KEY is required for google provider")
         manager = GoogleMapsRoutingManager(

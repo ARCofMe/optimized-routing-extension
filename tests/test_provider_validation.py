@@ -21,16 +21,25 @@ def test_google_provider_requires_key(monkeypatch):
     monkeypatch.setattr("optimized_routing.routing.BlueFolderIntegration", lambda: DummyIntegration())
     # Force blank key
     from optimized_routing import routing
-    routing.settings.google_api_key = ""
+    monkeypatch.setattr(routing.settings, "google_api_key", "")
 
     with pytest.raises(ValueError):
         generate_route_for_provider("google", 1)
 
 
+def test_geoapify_provider_requires_key(monkeypatch):
+    monkeypatch.setattr("optimized_routing.routing.BlueFolderIntegration", lambda: DummyIntegration())
+    from optimized_routing import routing
+    monkeypatch.setattr(routing.settings, "geoapify_api_key", "")
+
+    with pytest.raises(ValueError):
+        generate_route_for_provider("geoapify", 1)
+
+
 def test_mapbox_provider_requires_key(monkeypatch):
     monkeypatch.setattr("optimized_routing.routing.BlueFolderIntegration", lambda: DummyIntegration())
     from optimized_routing import routing
-    routing.settings.mapbox_api_key = ""
+    monkeypatch.setattr(routing.settings, "mapbox_api_key", "")
 
     with pytest.raises(ValueError):
         generate_route_for_provider("mapbox", 1)
