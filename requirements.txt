@@ -1,5 +1,5 @@
 annotated-types==0.7.0
-bluefolder-api==1.1.3
+-e git+https://github.com/ARCofMe/bluefolder-api.git@v1.1.3#egg=bluefolder_api
 certifi==2025.10.5
 charset-normalizer==3.4.4
 dotenv==0.9.9
