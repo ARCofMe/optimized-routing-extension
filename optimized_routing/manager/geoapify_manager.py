@@ -18,6 +18,7 @@ import requests
 
 from optimized_routing.manager.base import BaseRoutingManager, RouteStop
 from optimized_routing.utils.cache_manager import CacheManager
+from optimized_routing.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,119 @@ class GeoapifyRoutingManager(BaseRoutingManager):
 
         return None
 
+    def _optimize_order_geoapify(self, coords: List[tuple[float, float]]) -> Optional[List[int]]:
+        """
+        Try to optimize waypoint order using Geoapify's route matrix (simple heuristic).
+        Returns an index list or None on failure. This keeps us on Geoapify and avoids
+        public OSRM dependencies.
+        """
+        if len(coords) < 3 or not self.api_key:
+            return None
+
+        attempts = 2
+        url = "https://api.geoapify.com/v1/routematrix"
+        for attempt in range(1, attempts + 1):
+            try:
+                payload = {
+                    "mode": self.mode or "drive",
+                    "sources": coords,
+                    "targets": coords,
+                }
+                resp = requests.post(
+                    url,
+                    params={"apiKey": self.api_key},
+                    json=payload,
+                    timeout=8 * attempt,
+                )
+                if not resp.ok:
+                    logger.warning(
+                        "[GEOAPIFY] Matrix failed (%d/%d): %s %s",
+                        attempt,
+                        attempts,
+                        resp.status_code,
+                        resp.text[:120],
+                    )
+                    time.sleep(1.0 * attempt)
+                    continue
+
+                data = resp.json()
+                matrix = data.get("times") or data.get("distances")
+                if not matrix:
+                    return None
+
+                n = len(coords)
+                visited = {0}
+                order = [0]
+                current = 0
+                # simple nearest-neighbor heuristic
+                while len(order) < n:
+                    best = None
+                    best_cost = float("inf")
+                    for idx in range(n):
+                        if idx in visited:
+                            continue
+                        cost = matrix[current][idx]
+                        if cost is None:
+                            continue
+                        if cost < best_cost:
+                            best_cost = cost
+                            best = idx
+                    if best is None:
+                        break
+                    visited.add(best)
+                    order.append(best)
+                    current = best
+
+                if len(order) == n:
+                    logger.info("[GEOAPIFY] Optimized %d stops via routematrix", n)
+                    return order
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("[GEOAPIFY] Matrix optimization exception (%d/%d): %s", attempt, attempts, exc)
+                time.sleep(1.0 * attempt)
+
+        return None
+
+    def _optimize_order_osrm(self, coords: List[tuple[float, float]]) -> Optional[List[int]]:
+        """
+        Try to optimize waypoint order using OSRM's trip service with retries.
+        Returns an index order list or None on failure.
+        """
+        if len(coords) < 3:
+            return None
+
+        base = (settings.osm_base_url or "https://router.project-osrm.org").rstrip("/")
+        coord_str = ";".join([f"{lon},{lat}" for lon, lat in coords])
+        url = f"{base}/trip/v1/driving/{coord_str}"
+        params = {"source": "first", "destination": "last", "roundtrip": "false"}
+
+        attempts = 3
+        for attempt in range(1, attempts + 1):
+            try:
+                resp = requests.get(url, params=params, timeout=8 * attempt)
+                if not resp.ok:
+                    logger.warning(
+                        "[OSRM] Trip optimization failed (%d/%d): %s %s",
+                        attempt,
+                        attempts,
+                        resp.status_code,
+                        resp.text[:120],
+                    )
+                    time.sleep(1.0 * attempt)
+                    continue
+
+                data = resp.json()
+                waypoints = data.get("waypoints", [])
+                if not waypoints:
+                    return None
+
+                order = sorted(range(len(waypoints)), key=lambda i: waypoints[i].get("waypoint_index", i))
+                return order
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("[OSRM] Trip optimization exception (%d/%d): %s", attempt, attempts, exc)
+                time.sleep(1.0 * attempt)
+
+        return None
+
     # ------------------------------------------------------------------
     # Main URL builder
     # ------------------------------------------------------------------
@@ -114,33 +228,55 @@ class GeoapifyRoutingManager(BaseRoutingManager):
 
         grouped = self.grouped_stops()
 
-        if len(grouped) > 1:
-            ordered_addresses = [s.address for group in grouped for s in group]
-        else:
-            ordered_addresses = [s.address for s in self.stops]
+        # Origin / destination resolution
+        ordered_addresses: List[str] = []
+        windowed_coords: List[tuple[str, tuple[float, float]]] = []
+        failed: List[str] = []
 
-        origin = self.origin or ordered_addresses[0]
+        # Geocode origin up front
+        origin = self.origin or (self.stops[0].address if self.stops else "")
+        origin_coord = self._geocode(origin)
+        if not origin_coord:
+            raise ValueError(f"Could not geocode origin '{origin}' via Geoapify.")
+        windowed_coords.append((origin, origin_coord))
+
+        # Process windows independently; optimize within each window if possible.
+        for group in grouped:
+            addrs = [s.address for s in group]
+            addr_coords: List[tuple[str, tuple[float, float]]] = []
+            for addr in addrs:
+                coord = self._geocode(addr)
+                if not coord:
+                    logger.warning("[GEOAPIFY] Skipping address (no geocode): %s", addr)
+                    failed.append(addr)
+                    continue
+                addr_coords.append((addr, coord))
+
+            if len(addr_coords) > 2:
+                coord_list = [c for _, c in addr_coords]
+                order = self._optimize_order_geoapify(coord_list)
+                if order:
+                    addr_coords = [addr_coords[i] for i in order]
+                    logger.info("[GEOAPIFY] Optimized %d stops within window", len(addr_coords))
+                else:
+                    logger.info("[GEOAPIFY] Using window order (no optimization) for %d stops", len(addr_coords))
+
+            windowed_coords.extend(addr_coords)
+
+        # Destination override / return to origin
         destination = (
             self.destination_override
             if self.destination_override
-            else (self.origin if self.end_at_origin else ordered_addresses[-1])
+            else (self.origin if self.end_at_origin else (windowed_coords[-1][0] if windowed_coords else origin))
         )
+        dest_coord = self._geocode(destination)
+        if dest_coord:
+            windowed_coords.append((destination, dest_coord))
+        else:
+            logger.warning("[GEOAPIFY] Could not geocode destination '%s'; omitting.", destination)
 
-        full_route: List[str] = [origin] + ordered_addresses
-        if destination:
-            full_route.append(destination)
-
-        coords: List[tuple[float, float]] = []
-        kept_route: List[str] = []
-        failed: List[str] = []
-        for addr in full_route:
-            result = self._geocode(addr)
-            if not result:
-                logger.warning("[GEOAPIFY] Skipping address (no geocode): %s", addr)
-                failed.append(addr)
-                continue
-            coords.append(result)
-            kept_route.append(addr)
+        if len(windowed_coords) < 2:
+            raise ValueError("Need at least two geocoded waypoints to build a route.")
 
         if failed:
             logger.warning(
@@ -149,22 +285,26 @@ class GeoapifyRoutingManager(BaseRoutingManager):
                 "; ".join(failed),
             )
 
-        if len(coords) < 2:
-            raise ValueError("Need at least two geocoded waypoints to build a route.")
+        # Log final address order for observability
+        ordered_addresses = [addr for addr, _ in windowed_coords]
+        logger.info("[GEOAPIFY] Final waypoint order: %s", " -> ".join(ordered_addresses))
 
-        # Build an OSM directions URL (avoids exposing the API key in the link).
-        route_param = ";".join([f"{lat},{lon}" for lon, lat in coords])
+        # Build an OSRM map link (shows all waypoints reliably).
+        loc_params = "&".join([f"loc={lat},{lon}" for _, (lon, lat) in windowed_coords])
+        osrm_url = f"https://map.project-osrm.org/?{loc_params}"
+
+        # Keep the OSM directions-style URL as a secondary reference
+        route_param = ";".join([f"{lat},{lon}" for _, (lon, lat) in windowed_coords])
         engine = "fossgis_osrm_car"
         if self.mode in ("walk", "foot"):
             engine = "fossgis_osrm_foot"
         elif self.mode in ("bike", "bicycle"):
             engine = "fossgis_osrm_bike"
+        osm_url = f"{self.ROUTE_VIEW_URL}?engine={engine}&route={route_param}"
 
-        qs = urlencode({"engine": engine, "route": route_param})
-        url = f"{self.ROUTE_VIEW_URL}?{qs}"
-
-        logger.info("[GEOAPIFY] Generated OSM directions link with Geoapify geocoding.")
-        return url
+        logger.info("[GEOAPIFY] Generated OSRM map link with Geoapify geocoding.")
+        # Prefer OSRM map link to ensure via points render; fallback remains in logs.
+        return osrm_url
 
     # ------------------------------------------------------------------
     # Config accessors for parity

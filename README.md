@@ -10,7 +10,7 @@ This package automates optimized route generation for BlueFolder technician assi
 - Converts assignments → RouteStops with AM/PM/ALL_DAY grouping
 - Deduplicates overlapping stops
 - Supports provider selection (`geoapify`, `google`, `mapbox`, `osm`); Geoapify is default
-- Geoapify builds OSM directions links without exposing API keys; Google/Mapbox/OSM remain available
+- Geoapify geocodes and optimizes per service window (AM/ALL_DAY/PM); map link uses OSRM viewer so all stops render
 - Caching for geocoding and URL shortening to reduce rate-limit pressure
 - Orders stops by service window (AM before PM before ALL_DAY)
 - CLI interface for routing or previewing stops
@@ -31,6 +31,7 @@ Create `.env`:
 ```
 BLUEFOLDER_API_KEY=xxxxx
 BLUEFOLDER_BASE_URL=https://your.bluefolder.com/api/2.0
+BLUEFOLDER_ACCOUNT_NAME=your_account                    # only needed for older clients
 
 GEOAPIFY_API_KEY=xxxxx
 GOOGLE_API_KEY=xxxxx
@@ -70,6 +71,10 @@ python3 -m optimized_routing.main --user 123456789
 # Skip BF updates (dry run)
 --dry-run
 ```
+
+### Optimization notes
+- Geoapify is default: stops are grouped by service window (AM/ALL_DAY/PM) and optimized within each window using Geoapify’s routing matrix; if optimization fails, window order is preserved.
+- Final link is an OSRM map viewer URL so all waypoints are visible; short links still work.
 
 ### Quick date helpers
 Use `--date monday|today|tomorrow` to auto-populate start/end range without typing timestamps (overrides only if explicit dates aren’t provided).
