@@ -48,12 +48,8 @@ if "bluefolder_api" not in sys.modules:
     sys.modules["bluefolder_api"] = fake_module
     sys.modules["bluefolder_api.client"] = fake_client_module
 
-# Stub googlemaps if missing
-if "googlemaps" not in sys.modules:
-    sys.modules["googlemaps"] = type("googlemaps", (), {"Client": object})
-
 if "tenacity" not in sys.modules:
-    # Minimal stubs for decorators used in google_manager
+    # Minimal stubs for decorators used in routing managers
     def _noop(fn):
         return fn
     sys.modules["tenacity"] = type(
@@ -89,7 +85,6 @@ def patch_env(monkeypatch):
     monkeypatch.setenv("BLUEFOLDER_API_KEY", "test-key")
     monkeypatch.setenv("BLUEFOLDER_ACCOUNT_NAME", "testaccount")
     monkeypatch.setenv("GEOAPIFY_API_KEY", "test-geoapify")
-    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "test-google")
     monkeypatch.setenv("MAPBOX_API_KEY", "test-mapbox")
 
     # Keep in-memory settings in sync for modules that have already been imported.
@@ -97,7 +92,6 @@ def patch_env(monkeypatch):
         from optimized_routing import config as routing_config
 
         routing_config.settings.geoapify_api_key = "test-geoapify"
-        routing_config.settings.google_api_key = "test-google"
         routing_config.settings.mapbox_api_key = "test-mapbox"
         routing_config.settings.default_provider = "geoapify"
     except Exception:

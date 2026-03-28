@@ -17,7 +17,7 @@ def test_route_for_user():
 
     # Should always return a URL or placeholder text
     route = routing.generate_route_for_provider(
-        "google",
+        "osm",
         uid,
         origin_address=origin,
         destination_override=None,

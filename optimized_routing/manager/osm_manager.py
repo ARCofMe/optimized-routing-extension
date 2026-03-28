@@ -3,9 +3,8 @@ osm_manager.py
 
 OpenStreetMap / OpenRouteService routing provider.
 
-This version performs ACTUAL route optimization via ORS and then converts the
-optimized waypoint order into a Google Maps /dir URL so technicians get a
-familiar Maps experience.
+This version performs route optimization via ORS and then emits an
+OpenStreetMap/OSRM viewer URL instead of a Google Maps URL.
 
 Requirements:
     - ORS_API_KEY must be set in your .env
@@ -30,7 +29,7 @@ class OSMRoutingManager(BaseRoutingManager):
     It:
         1. Calls ORS optimization API with all stops
         2. Receives the optimized waypoint ordering
-        3. Emits a Google Maps /dir URL using the optimized order
+        3. Emits an OSRM/OpenStreetMap URL using the optimized order
     """
 
     def __init__(
@@ -168,9 +167,10 @@ class OSMRoutingManager(BaseRoutingManager):
         else:
             logger.info("[ORS] Optimization skipped")
 
-        # 4️⃣ Convert to Google Maps URL
+        # 4️⃣ Convert to OSM/OSRM viewer URLs
+        route_param = ";".join(addresses)
         encoded = [quote_plus(a) for a in addresses]
-        url = "https://www.google.com/maps/dir/" + "/".join(encoded)
+        osrm_url = "https://map.project-osrm.org/?route=" + ";".join(encoded)
 
-        logger.info("[ORS] Built Google Maps URL with optimized order")
-        return url
+        logger.info("[ORS] Built OSRM map URL with optimized order")
+        return osrm_url

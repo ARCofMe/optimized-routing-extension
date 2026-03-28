@@ -61,13 +61,6 @@ def get_routing_manager(provider: str, origin: str, destination: str | None):
             origin=origin,
             destination_override=destination,
         )
-    elif provider == "google":
-        from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
-
-        return GoogleMapsRoutingManager(
-            origin=origin,
-            destination_override=destination,
-        )
     elif provider == "mapbox":
         from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
 
@@ -261,7 +254,7 @@ def __main__():
     parser.add_argument("--origin", help="Override origin address")
     parser.add_argument("--destination", help="Override final destination")
     parser.add_argument(
-        "--provider", choices=["geoapify", "google", "mapbox", "osm"], default=settings.default_provider
+        "--provider", choices=["geoapify", "mapbox", "osm"], default=settings.default_provider
     )
     parser.add_argument(
         "--date",

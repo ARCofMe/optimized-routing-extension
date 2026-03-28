@@ -1,6 +1,6 @@
 # Optimized Routing Extension
 
-This package automates optimized route generation for BlueFolder technician assignments using multiple routing providers (Geoapify, Google Maps, Mapbox, OSM/OSRM) and optional Cloudflare URL shortening.
+This package automates optimized route generation for BlueFolder technician assignments using Geoapify, Mapbox, and OSM/OSRM plus optional Cloudflare URL shortening.
 
 ---
 
@@ -9,7 +9,7 @@ This package automates optimized route generation for BlueFolder technician assi
 - Fetches daily assignments from BlueFolder
 - Converts assignments → RouteStops with AM/PM/ALL_DAY grouping
 - Deduplicates overlapping stops
-- Supports provider selection (`geoapify`, `google`, `mapbox`, `osm`); Geoapify is default
+- Supports provider selection (`geoapify`, `mapbox`, `osm`); Geoapify is default
 - Geoapify geocodes and optimizes per service window (AM/ALL_DAY/PM); map link uses OSRM viewer so all stops render
 - Caching for geocoding and URL shortening to reduce rate-limit pressure
 - Orders stops by service window (AM before PM before ALL_DAY)
@@ -34,13 +34,12 @@ BLUEFOLDER_BASE_URL=https://your.bluefolder.com/api/2.0
 BLUEFOLDER_ACCOUNT_NAME=your_account                    # only needed for older clients
 
 GEOAPIFY_API_KEY=xxxxx
-GOOGLE_API_KEY=xxxxx
 MAPBOX_API_KEY=xxxxx
 OSM_BASE_URL=https://router.project-osrm.org   # optional override
 
 CF_SHORTENER_URL=https://your-worker.workers.dev   # optional
 DEFAULT_ORIGIN=South Paris, ME                     # optional
-DEFAULT_PROVIDER=geoapify                          # geoapify|google|mapbox|osm
+DEFAULT_PROVIDER=geoapify                          # geoapify|mapbox|osm
 ```
 
 ---
@@ -64,7 +63,6 @@ python3 -m optimized_routing.main --user 123456789
 ### Pick routing provider
 ```
 --provider geoapify
---provider google
 --provider mapbox
 --provider osm
 

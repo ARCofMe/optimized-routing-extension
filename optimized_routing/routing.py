@@ -159,10 +159,6 @@ def _manager_for_provider(provider: str):
         from optimized_routing.manager.geoapify_manager import GeoapifyRoutingManager
 
         return GeoapifyRoutingManager
-    if provider == "google":
-        from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
-
-        return GoogleMapsRoutingManager
     if provider == "mapbox":
         from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
 
@@ -201,13 +197,6 @@ def generate_route_for_provider(
     if provider == "geoapify":
         if not settings.geoapify_api_key:
             raise ValueError("GEOAPIFY_API_KEY is required for geoapify provider")
-        manager = _manager_for_provider(provider)(
-            origin=origin_address or settings.default_origin,
-            destination_override=destination_override,
-        )
-    elif provider == "google":
-        if not settings.google_api_key:
-            raise ValueError("GOOGLE_MAPS_API_KEY is required for google provider")
         manager = _manager_for_provider(provider)(
             origin=origin_address or settings.default_origin,
             destination_override=destination_override,
@@ -271,7 +260,7 @@ def preview_user_stops(user_id: int, origin: Optional[str] = None):
     for s in stops:
         print(f"- {s.label} | {s.window.name} | {s.address}")
 
-    mgr = _manager_for_provider("google")(origin=origin or "South Paris, ME")
+    mgr = _manager_for_provider("geoapify")(origin=origin or "South Paris, ME")
     mgr.add_stops(stops)
 
     print("\n================= ROUTE URL =================")

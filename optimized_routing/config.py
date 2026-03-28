@@ -11,7 +11,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, validator
 import os
 
-VALID_PROVIDERS = {"geoapify", "google", "mapbox", "osm"}
+VALID_PROVIDERS = {"geoapify", "mapbox", "osm"}
 
 
 class RouteConfig(BaseModel):
@@ -51,7 +51,6 @@ class Settings(BaseModel):
     )
 
     geoapify_api_key: str = Field(default_factory=lambda: os.getenv("GEOAPIFY_API_KEY", ""))
-    google_api_key: str = Field(default_factory=lambda: os.getenv("GOOGLE_MAPS_API_KEY", ""))
     mapbox_api_key: str = Field(default_factory=lambda: os.getenv("MAPBOX_API_KEY", ""))
     osm_base_url: str = Field(
         default_factory=lambda: os.getenv("OSM_BASE_URL", "https://router.project-osrm.org")

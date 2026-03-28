@@ -71,6 +71,6 @@ def test_osm_window_order(monkeypatch):
     )
 
     url = mgr.build_route_url()
-    # Google Maps dir URL should place AM before ALL before PM
-    assert url.startswith("https://www.google.com/maps/dir/")
+    # OSRM viewer URL should place AM before ALL before PM
+    assert url.startswith("https://map.project-osrm.org/?route=")
     assert url.index("AM") < url.index("ALL") < url.index("PM")

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "optimized-routing-extension"
 version = "1.1.0"
-description = "Optimized BlueFolder routing + Google Maps + Cloudflare shortener"
+description = "Optimized BlueFolder routing with Geoapify, Mapbox, OSM, and Cloudflare shortener"
 readme = "README.md"
 authors = [
     { name = "David Durost" }
@@ -16,7 +16,6 @@ requires-python = ">=3.9"
 dependencies = [
     "requests",
     "python-dotenv",
-    "googlemaps",
     "pydantic",
     "tenacity",
 ]
