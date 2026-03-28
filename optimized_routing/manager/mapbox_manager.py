@@ -1,46 +1,34 @@
-"""
-Mapbox Routing Manager
-Provides a GoogleMapsRoutingManager-compatible interface
-for generating optimized & clickable Mapbox routing URLs.
-"""
+"""Mapbox routing manager with deduplication and fallback viewer URLs."""
 
-import os
+from __future__ import annotations
+
 import logging
 from typing import List
 import requests
-from .base import RouteStop, ServiceWindow
+from .base import BaseRoutingManager, RouteStop
 
 logger = logging.getLogger(__name__)
 
-MAPBOX_TOKEN = os.getenv("MAPBOX_API_KEY")
 
-
-class MapboxRoutingManager:
+class MapboxRoutingManager(BaseRoutingManager):
     BASE_URL = "https://api.mapbox.com/optimized-trips/v1/mapbox/driving"
     CLICK_URL = "https://www.mapbox.com/directions"
 
     def __init__(self, origin: str = None, destination_override: str = None):
-        if not MAPBOX_TOKEN:
+        super().__init__(origin or "", destination_override=destination_override)
+        from optimized_routing.config import settings
+
+        self.api_token = settings.mapbox_api_key
+        if not self.api_token:
             raise ValueError("MAPBOX_API_KEY not set in environment")
 
-        self.origin = origin
-        self.destination_override = destination_override
-        self.stops: List[RouteStop] = []
-
     # ----------------------------------------------------------------------
-    def add_stops(self, stops: List[RouteStop]):
-        """Append RouteStop objects into the route list."""
-        self.stops.extend(stops)
-
-    # ----------------------------------------------------------------------
-    def _geocode(self, address: str) -> tuple:
-        """
-        Convert human-readable address → (lon, lat)
-        """
+    def _geocode(self, address: str) -> tuple[float | None, float | None]:
+        """Convert human-readable address to `(lon, lat)`."""
         try:
             r = requests.get(
                 "https://api.mapbox.com/search/geocode/v6/forward",
-                params={"q": address, "access_token": MAPBOX_TOKEN},
+                params={"q": address, "access_token": self.api_token},
                 timeout=6,
             )
             r.raise_for_status()
@@ -56,43 +44,43 @@ class MapboxRoutingManager:
 
     # ----------------------------------------------------------------------
     def build_route_url(self) -> str:
-        """Generate optimized route using Mapbox Optimization API."""
+        """Generate optimized route using Mapbox optimization with stable fallbacks."""
 
         if not self.stops:
             raise ValueError("No stops available to generate a route.")
 
-        # Honor service windows: AM → ALL_DAY → PM
-        ordered_stops = sorted(self.stops, key=lambda s: s.window.value)
-        waypoints = []
+        self.stops = self.deduplicate_stops()
+        ordered_stops = self.ordered_stops()
+        origin = self.origin
+        route_stops = list(ordered_stops)
+        if not origin:
+            origin = route_stops[0].address
+            route_stops = route_stops[1:]
 
-        # 1️⃣ Add origin as the first stop
-        if self.origin:
-            lon, lat = self._geocode(self.origin)
-            if lon is not None:
-                waypoints.append(f"{lon},{lat}")
-        else:
-            # use first stop as origin if none given
-            first = self.stops[0].address
-            lon, lat = self._geocode(first)
-            waypoints.append(f"{lon},{lat}")
+        waypoints: list[str] = []
+        lon, lat = self._geocode(origin)
+        if lon is None:
+            raise ValueError(f"Could not geocode origin '{origin}' via Mapbox.")
+        waypoints.append(f"{lon},{lat}")
 
-        # 2️⃣ Add all job stops
-        for stop in ordered_stops:
+        for stop in route_stops:
             lon, lat = self._geocode(stop.address)
             if lon is not None:
                 waypoints.append(f"{lon},{lat}")
+            else:
+                logger.warning("[MAPBOX] Skipping address with no geocode: %s", stop.address)
 
-        # 3️⃣ Apply destination override
         if self.destination_override:
             lon, lat = self._geocode(self.destination_override)
             if lon is not None:
                 waypoints.append(f"{lon},{lat}")
+            else:
+                logger.warning("[MAPBOX] Destination geocode failed: %s", self.destination_override)
         else:
-            # loop back to origin for round-trip consistency
-            if self.origin:
-                lon, lat = self._geocode(self.origin)
-                if lon is not None:
-                    waypoints.append(f"{lon},{lat}")
+            waypoints.append(waypoints[0])
+
+        if len(waypoints) < 2:
+            raise ValueError("Could not geocode enough locations to build a Mapbox route.")
 
         coord_string = ";".join(waypoints)
 
@@ -100,7 +88,7 @@ class MapboxRoutingManager:
             r = requests.get(
                 f"{self.BASE_URL}/{coord_string}",
                 params={
-                    "access_token": MAPBOX_TOKEN,
+                    "access_token": self.api_token,
                     "roundtrip": "true",
                     "source": "first",
                     "destination": "last",
@@ -116,15 +104,20 @@ class MapboxRoutingManager:
             # return a static but still valid viewer link
             return f"{self.CLICK_URL}?coordinates={coord_string}"
 
-        # Extract waypoint order
         waypoints_order = data.get("waypoints", [])
         coords_for_url = []
 
-        # Mapbox returns re-sorted order — follow it
+        if not waypoints_order:
+            return f"{self.CLICK_URL}?coordinates={coord_string}"
+
         for wp in waypoints_order:
-            lon, lat = wp["location"]
+            lon, lat = wp.get("location", [None, None])
+            if lon is None:
+                continue
             coords_for_url.append(f"{lon},{lat}")
 
-        # Construct a sharable Mapbox click URL
+        if not coords_for_url:
+            return f"{self.CLICK_URL}?coordinates={coord_string}"
+
         viewer_url = f"{self.CLICK_URL}?coordinates=" + ";".join(coords_for_url)
         return viewer_url

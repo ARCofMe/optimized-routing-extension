@@ -9,7 +9,7 @@ This module defines:
 
 Extending this:
     Subclass BaseRoutingManager and implement `build_route_url()` for your mapping API.
-    Example: GoogleMapsRoutingManager, MapboxRoutingManager, etc.
+    Example: GeoapifyRoutingManager, MapboxRoutingManager, etc.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 
 class RoutingProvider(Enum):
     GEOAPIFY = "geoapify"
-    GOOGLE = "google"
     MAPBOX = "mapbox"
     OSM = "osm"
 

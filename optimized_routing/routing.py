@@ -8,7 +8,6 @@ Responsibilities:
     - Convert assignments into structured RouteStop objects.
     - Pass stops to provider-specific managers for optimized routing.
 """
-import os
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -21,8 +20,8 @@ from optimized_routing.utils.cache_manager import CacheManager
 logger = logging.getLogger(__name__)
 
 
-CF_SHORTENER_URL = os.getenv("CF_SHORTENER_URL")
 short_cache = CacheManager("short_urls", ttl_minutes=24 * 60)
+CF_SHORTENER_URL = settings.cf_shortener_url
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,16 +37,17 @@ def shorten_route_url(long_url: str) -> str:
     if cached:
         return cached
 
-    if not CF_SHORTENER_URL:
+    shortener_url = settings.cf_shortener_url or CF_SHORTENER_URL
+    if not shortener_url:
         logger.info("[SHORTENER] CF_SHORTENER_URL not set — returning long URL")
         short_cache.set(long_url, long_url)
         return long_url
 
     try:
-        r = requests.post(f"{CF_SHORTENER_URL}/new", json={"url": long_url}, timeout=6)
+        r = requests.post(f"{shortener_url.rstrip('/')}/new", json={"url": long_url}, timeout=6)
         if r.ok:
             data = r.json()
-            short = data.get("short")
+            short = data.get("short") if isinstance(data, dict) else None
             if short:
                 logger.info(f"[SHORTENER] Shortened → {short}")
                 short_cache.set(long_url, short)

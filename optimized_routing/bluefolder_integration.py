@@ -5,7 +5,7 @@ Integration layer between BlueFolder API and routing extensions.
 Rate-limit safe version.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import logging
 import os
 import time
@@ -32,6 +32,7 @@ from optimized_routing.config import settings
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+MAX_429_RETRIES = 5
 
 # ======================================================================
 # RATE-LIMIT PROTECTION
@@ -44,7 +45,8 @@ def bluefolder_safe(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         """Retry the wrapped SDK call until it succeeds or a non-429 error occurs."""
-        while True:
+        attempts = 0
+        while attempts < MAX_429_RETRIES:
             try:
                 return fn(*args, **kwargs)
 
@@ -53,6 +55,7 @@ def bluefolder_safe(fn):
                 if not response or response.status_code != 429:
                     raise
 
+                attempts += 1
                 # Attempt to parse Retry-After timestamp
                 wait_seconds = 10
                 try:
@@ -67,13 +70,13 @@ def bluefolder_safe(fn):
                             retry_at.replace("Z", "+00:00")
                         )
                         wait_seconds = max(
-                            (retry_time - datetime.utcnow()).total_seconds(), 5
+                            (retry_time - datetime.now(timezone.utc)).total_seconds(), 5
                         )
                 except Exception:
                     pass
 
                 logger.warning(
-                    f"[RATE LIMIT] 429 received; sleeping {wait_seconds:.1f}s…"
+                    f"[RATE LIMIT] 429 received; sleeping {wait_seconds:.1f}s… ({attempts}/{MAX_429_RETRIES})"
                 )
                 time.sleep(wait_seconds)
 
@@ -82,6 +85,9 @@ def bluefolder_safe(fn):
                     f"[ERROR] BlueFolder operation failed in {fn.__name__}: {e}"
                 )
                 return None
+
+        logger.error("[RATE LIMIT] Exhausted retries for %s after %d attempts", fn.__name__, MAX_429_RETRIES)
+        return None
 
     return wrapper
 

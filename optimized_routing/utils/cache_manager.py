@@ -1,24 +1,11 @@
-"""
-utils/cache_manager.py
+"""Lightweight JSON-backed cache with TTL expiry and atomic persistence."""
 
-Lightweight key–value cache with JSON persistence and optional TTL expiry.
+from __future__ import annotations
 
-Features:
-    - Persistent on-disk caching using JSON files.
-    - TTL (time-to-live) expiration system for each cache entry.
-    - Simple API: get(), set(), clear().
-    - Per-cache file isolation (each CacheManager instance maintains its own namespace).
-
-Intended usage:
-    >>> cache = CacheManager("routes", ttl_minutes=60)
-    >>> cache.set("optimized_route_123", {"waypoints": [...]})
-    >>> data = cache.get("optimized_route_123")
-"""
-
-import os
 import json
-import time
 import logging
+from pathlib import Path
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +13,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-CACHE_DIR = os.path.join(os.path.dirname(__file__), ".cache")
-os.makedirs(CACHE_DIR, exist_ok=True)
+CACHE_DIR = Path(__file__).resolve().parent / ".cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_TTL_MINUTES = 30
 
@@ -70,7 +57,7 @@ class CacheManager:
         """
         self.name = name
         self.ttl = ttl_minutes * 60
-        self.file_path = os.path.join(CACHE_DIR, f"{name}.json")
+        self.file_path = CACHE_DIR / f"{name}.json"
         self.data = self._load()
 
         logger.debug(f"[CACHE] Initialized '{self.name}' at {self.file_path}")
@@ -81,22 +68,26 @@ class CacheManager:
 
     def _load(self) -> dict:
         """Load cache data from disk."""
-        if not os.path.exists(self.file_path):
+        if not self.file_path.exists():
             return {}
 
         try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-                return raw.get("data", {})
+            raw = json.loads(self.file_path.read_text(encoding="utf-8"))
+            payload = raw.get("data", {})
+            if isinstance(payload, dict):
+                return payload
+            logger.warning("[CACHE] Ignoring malformed payload in '%s'", self.name)
         except Exception as e:
             logger.warning(f"[CACHE] Failed to load '{self.name}': {e}")
-            return {}
+        return {}
 
     def _save(self) -> None:
         """Persist cache data to disk."""
         try:
-            with open(self.file_path, "w", encoding="utf-8") as f:
-                json.dump({"data": self.data, "timestamp": time.time()}, f, indent=2)
+            payload = json.dumps({"data": self.data, "timestamp": time.time()}, indent=2)
+            temp_path = self.file_path.with_suffix(f"{self.file_path.suffix}.tmp")
+            temp_path.write_text(payload, encoding="utf-8")
+            temp_path.replace(self.file_path)
             logger.debug(f"[CACHE] Saved '{self.name}' ({len(self.data)} entries)")
         except Exception as e:
             logger.warning(f"[CACHE] Failed to save '{self.name}': {e}")
@@ -146,6 +137,6 @@ class CacheManager:
         Clear all entries in this cache and delete the cache file.
         """
         self.data = {}
-        if os.path.exists(self.file_path):
-            os.remove(self.file_path)
+        if self.file_path.exists():
+            self.file_path.unlink()
         logger.info(f"[CACHE] Cleared '{self.name}'")

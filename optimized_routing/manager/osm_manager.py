@@ -1,35 +1,19 @@
-"""
-osm_manager.py
-
-OpenStreetMap / OpenRouteService routing provider.
-
-This version performs route optimization via ORS and then emits an
-OpenStreetMap/OSRM viewer URL instead of a Google Maps URL.
-
-Requirements:
-    - ORS_API_KEY must be set in your .env
-"""
+"""OpenStreetMap routing manager with optional ORS optimization."""
 
 from __future__ import annotations
 
-import os
 import logging
 from typing import List, Optional
-from urllib.parse import quote_plus
 import requests
 
-from .base import RouteStop, BaseRoutingManager, ServiceWindow
+from .base import RouteStop, BaseRoutingManager
 
 logger = logging.getLogger(__name__)
 
 
 class OSMRoutingManager(BaseRoutingManager):
     """
-    Real ORS-backed optimization engine.
-    It:
-        1. Calls ORS optimization API with all stops
-        2. Receives the optimized waypoint ordering
-        3. Emits an OSRM/OpenStreetMap URL using the optimized order
+    OpenStreetMap/OSRM-backed route builder with optional ORS optimization.
     """
 
     def __init__(
@@ -37,18 +21,12 @@ class OSMRoutingManager(BaseRoutingManager):
         origin: Optional[str] = None,
         destination_override: Optional[str] = None,
     ):
-        self.origin = origin
-        self.destination_override = destination_override
-        self._stops: List[RouteStop] = []
-        self.ORS_KEY = os.getenv("ORS_API_KEY")
+        super().__init__(origin or "", destination_override=destination_override)
+        import os
 
-    # --------------------------------------------------------------------
-    # Public API
-    # --------------------------------------------------------------------
-
-    def add_stops(self, stops: List[RouteStop]) -> None:
-        self._stops.extend(stops)
-        logger.debug("[ORS] Added %d stops (total=%d)", len(stops), len(self._stops))
+        self.ors_key = os.getenv("ORS_API_KEY")
+        self.nominatim_url = os.getenv("OSM_NOMINATIM_URL", "https://nominatim.openstreetmap.org/search")
+        self.osrm_view_url = "https://map.project-osrm.org/"
 
     # --------------------------------------------------------------------
     # Helpers
@@ -56,32 +34,41 @@ class OSMRoutingManager(BaseRoutingManager):
 
     def _geocode_address(self, address: str) -> Optional[List[float]]:
         """
-        Geocode address → [lon, lat] using ORS.
+        Geocode address to `[lon, lat]`, preferring Nominatim and falling back to ORS.
         """
-        if not self.ORS_KEY:
-            logger.warning("ORS_API_KEY not set — skipping optimization.")
+        try:
+            r = requests.get(
+                self.nominatim_url,
+                params={"q": address, "format": "jsonv2", "limit": 1},
+                headers={"User-Agent": "optimized-routing-extension/1.1"},
+                timeout=6,
+            )
+            if r.ok:
+                matches = r.json()
+                if matches:
+                    first = matches[0]
+                    return [float(first["lon"]), float(first["lat"])]
+        except Exception as e:
+            logger.warning("[OSM] Nominatim geocode failed for %s: %s", address, e)
+
+        if not self.ors_key:
             return None
 
         try:
-            url = "https://api.openrouteservice.org/geocode/search"
-            params = {"api_key": self.ORS_KEY, "text": address}
-            r = requests.get(url, params=params, timeout=6)
-
+            r = requests.get(
+                "https://api.openrouteservice.org/geocode/search",
+                params={"api_key": self.ors_key, "text": address},
+                timeout=6,
+            )
             if not r.ok:
                 logger.error("[ORS] Geocode error: %s %s", r.status_code, r.text)
                 return None
-
-            j = r.json()
-            feats = j.get("features")
-            if not feats:
-                return None
-
-            coords = feats[0]["geometry"]["coordinates"]  # lon, lat
-            return coords
-
+            feats = r.json().get("features")
+            if feats:
+                return feats[0]["geometry"]["coordinates"]
         except Exception as e:
             logger.exception("[ORS] Exception geocoding %s: %s", address, e)
-            return None
+        return None
 
     def _optimize_order(self, coords: List[List[float]]) -> Optional[List[int]]:
         """
@@ -90,7 +77,7 @@ class OSMRoutingManager(BaseRoutingManager):
 
         Returns an array of indices in the optimized order.
         """
-        if not self.ORS_KEY:
+        if not self.ors_key:
             return None
 
         try:
@@ -100,7 +87,7 @@ class OSMRoutingManager(BaseRoutingManager):
             r = requests.post(
                 url,
                 json=payload,
-                headers={"Authorization": self.ORS_KEY},
+                headers={"Authorization": self.ors_key},
                 timeout=10,
             )
 
@@ -121,56 +108,56 @@ class OSMRoutingManager(BaseRoutingManager):
     # --------------------------------------------------------------------
 
     def build_route_url(self) -> str:
-        if not self._stops:
+        if not self.stops:
             raise ValueError("No stops available to generate a route.")
 
-        # 1️⃣ Collect all addresses (origin + stops + optional destination)
-        addresses: List[str] = []
+        self.stops = self.deduplicate_stops()
+        ordered_stops = self.ordered_stops()
+        origin = self.origin
+        route_stops = list(ordered_stops)
+        if not origin:
+            origin = route_stops[0].address
+            route_stops = route_stops[1:]
 
-        if self.origin:
-            addresses.append(self.origin)
+        routed_points: list[tuple[str, list[float]]] = []
+        origin_coords = self._geocode_address(origin)
+        if not origin_coords:
+            raise ValueError(f"Could not geocode origin '{origin}' for OSM routing.")
+        routed_points.append((origin, origin_coords))
 
-        # Honor service windows: AM → ALL_DAY → PM
-        priority = {
-            ServiceWindow.AM: 0,
-            ServiceWindow.ALL_DAY: 1,
-            ServiceWindow.PM: 2,
-        }
-        ordered_stops = sorted(self._stops, key=lambda s: priority[s.window])
-        for stop in ordered_stops:
-            addresses.append(stop.address)
+        for stop in route_stops:
+            coords = self._geocode_address(stop.address)
+            if coords:
+                routed_points.append((stop.address, coords))
+            else:
+                logger.warning("[OSM] Skipping address with no geocode: %s", stop.address)
 
         if self.destination_override:
-            addresses.append(self.destination_override)
-
-        # 2️⃣ Geocode all addresses => coords
-        coords = []
-        for addr in addresses:
-            c = self._geocode_address(addr)
-            if c:
-                coords.append(c)
+            destination_coords = self._geocode_address(self.destination_override)
+            if destination_coords:
+                routed_points.append((self.destination_override, destination_coords))
             else:
-                logger.warning(
-                    "[ORS] Could not geocode '%s' — disabling optimization", addr
-                )
-                coords = []
-                break  # fallback mode triggers below
+                logger.warning("[OSM] Destination geocode failed: %s", self.destination_override)
+        else:
+            routed_points.append((origin, origin_coords))
 
-        # 3️⃣ If optimization possible → reorder addresses
-        if coords and len(coords) > 2:
+        if len(routed_points) < 2:
+            raise ValueError("Could not geocode enough locations to build an OSM route.")
+
+        coords = [point for _, point in routed_points]
+        if len(coords) > 2:
             order = self._optimize_order(coords)
             if order:
                 logger.info("[ORS] Using optimized waypoint order")
-                addresses = [addresses[i] for i in order]
+                routed_points = [routed_points[i] for i in order]
             else:
                 logger.warning("[ORS] Optimization failed — using original order")
         else:
             logger.info("[ORS] Optimization skipped")
 
-        # 4️⃣ Convert to OSM/OSRM viewer URLs
-        route_param = ";".join(addresses)
-        encoded = [quote_plus(a) for a in addresses]
-        osrm_url = "https://map.project-osrm.org/?route=" + ";".join(encoded)
-
-        logger.info("[ORS] Built OSRM map URL with optimized order")
-        return osrm_url
+        loc_params = "&".join(
+            f"loc={lat},{lon}"
+            for _, (lon, lat) in routed_points
+        )
+        logger.info("[OSM] Built OSRM map URL with %d routed points", len(routed_points))
+        return f"{self.osrm_view_url}?{loc_params}"

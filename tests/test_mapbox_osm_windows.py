@@ -1,10 +1,10 @@
 from optimized_routing.manager.base import RouteStop, ServiceWindow
 from optimized_routing.manager import mapbox_manager, osm_manager
+from optimized_routing import config as routing_config
 
 
 def test_mapbox_window_order(monkeypatch):
-    # Force token present
-    mapbox_manager.MAPBOX_TOKEN = "token"
+    monkeypatch.setattr(routing_config.settings, "mapbox_api_key", "token")
 
     # Stub geocode to return sequential coords in call order
     coords = [(i, i) for i in range(10)]
@@ -54,9 +54,15 @@ def test_mapbox_window_order(monkeypatch):
 
 def test_osm_window_order(monkeypatch):
     # Stub geocode and optimize to preserve order of input addresses respecting windows
+    coord_map = {
+        "Origin": [-70.0, 44.0],
+        "AM": [-70.1, 44.1],
+        "ALL": [-70.2, 44.2],
+        "PM": [-70.3, 44.3],
+    }
+
     def fake_geocode(self, address):
-        # return placeholder lon/lat
-        return [1.0, 2.0]
+        return coord_map[address]
 
     monkeypatch.setattr(osm_manager.OSMRoutingManager, "_geocode_address", fake_geocode)
     monkeypatch.setattr(osm_manager.OSMRoutingManager, "_optimize_order", lambda *a, **k: None)
@@ -72,5 +78,5 @@ def test_osm_window_order(monkeypatch):
 
     url = mgr.build_route_url()
     # OSRM viewer URL should place AM before ALL before PM
-    assert url.startswith("https://map.project-osrm.org/?route=")
-    assert url.index("AM") < url.index("ALL") < url.index("PM")
+    assert url.startswith("https://map.project-osrm.org/?")
+    assert url.index("loc=44.1,-70.1") < url.index("loc=44.2,-70.2") < url.index("loc=44.3,-70.3")

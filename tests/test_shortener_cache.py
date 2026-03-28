@@ -4,6 +4,7 @@ from optimized_routing import routing
 def test_shorten_route_url_caches(monkeypatch):
     routing.short_cache.clear()
     routing.CF_SHORTENER_URL = "https://worker.test"
+    monkeypatch.setattr(routing.settings, "cf_shortener_url", "https://worker.test")
 
     calls = {"count": 0}
 
@@ -26,3 +27,23 @@ def test_shorten_route_url_caches(monkeypatch):
 
     assert first == second == "https://sho.rt/abc"
     assert calls["count"] == 1
+
+
+def test_shorten_route_url_falls_back_when_short_key_is_missing(monkeypatch):
+    routing.short_cache.clear()
+    routing.CF_SHORTENER_URL = "https://worker.test"
+    monkeypatch.setattr(routing.settings, "cf_shortener_url", "https://worker.test")
+
+    class DummyResp:
+        ok = True
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"unexpected": "payload"}
+
+    monkeypatch.setattr(routing.requests, "post", lambda *a, **k: DummyResp())
+
+    url = routing.shorten_route_url("http://example.com/long")
+
+    assert url == "http://example.com/long"

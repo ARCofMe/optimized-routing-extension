@@ -14,7 +14,7 @@ from optimized_routing.routing import (
     preview_user_stops,
 )
 
-from optimized_routing.config import settings
+from optimized_routing.config import settings, VALID_PROVIDERS
 
 # -------------------------------------------------------------------
 # Logging
@@ -254,7 +254,7 @@ def __main__():
     parser.add_argument("--origin", help="Override origin address")
     parser.add_argument("--destination", help="Override final destination")
     parser.add_argument(
-        "--provider", choices=["geoapify", "mapbox", "osm"], default=settings.default_provider
+        "--provider", choices=sorted(VALID_PROVIDERS), default=settings.default_provider
     )
     parser.add_argument(
         "--date",

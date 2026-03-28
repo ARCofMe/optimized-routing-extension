@@ -36,6 +36,7 @@ def test_mapbox_provider_requires_key(monkeypatch):
 
 def test_osm_provider_does_not_require_key(monkeypatch):
     monkeypatch.setattr("optimized_routing.routing.BlueFolderIntegration", lambda: DummyIntegration())
-    # Should not raise even without ORS key; will fall back to non-optimized order
+    monkeypatch.setattr("optimized_routing.manager.osm_manager.OSMRoutingManager._geocode_address", lambda self, address: [-70.0, 44.0])
+    monkeypatch.setattr("optimized_routing.manager.osm_manager.OSMRoutingManager._optimize_order", lambda self, coords: None)
     url = generate_route_for_provider("osm", 1, origin_address="Start")
     assert "map.project-osrm.org" in url

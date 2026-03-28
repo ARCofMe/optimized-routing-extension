@@ -6,4 +6,7 @@ tests/__pycache__/*
 utils/__pycache__/
 cache/
 .cache/
+reports/htmlcov/
+reports/unit-tests.xml
+reports/coverage.xml
 *.old
