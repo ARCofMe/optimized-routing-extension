@@ -1,7 +1,6 @@
 import pytest
 
 from optimized_routing.routing import generate_route_for_provider
-from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
 
 
 class DummyIntegration:
@@ -32,7 +31,7 @@ def test_generate_route_for_provider_geoapify(monkeypatch):
             return "geo://route"
 
     monkeypatch.setattr("optimized_routing.routing.BlueFolderIntegration", lambda: DummyIntegration())
-    monkeypatch.setattr("optimized_routing.routing.GeoapifyRoutingManager", DummyManager)
+    monkeypatch.setattr("optimized_routing.routing._manager_for_provider", lambda provider: DummyManager)
     from optimized_routing import routing
     routing.settings.geoapify_api_key = "dummy"
 
@@ -55,7 +54,7 @@ def test_generate_route_for_provider_google(monkeypatch):
             return "mock://route"
 
     monkeypatch.setattr("optimized_routing.routing.BlueFolderIntegration", lambda: DummyIntegration())
-    monkeypatch.setattr("optimized_routing.routing.GoogleMapsRoutingManager", DummyManager)
+    monkeypatch.setattr("optimized_routing.routing._manager_for_provider", lambda provider: DummyManager)
     from optimized_routing import routing
     routing.settings.google_api_key = "dummy"
 

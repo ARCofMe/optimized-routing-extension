@@ -15,10 +15,6 @@ from optimized_routing.routing import (
 )
 
 from optimized_routing.config import settings
-from optimized_routing.manager.geoapify_manager import GeoapifyRoutingManager
-from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
-from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
-from optimized_routing.manager.osm_manager import OSMRoutingManager
 
 # -------------------------------------------------------------------
 # Logging
@@ -59,21 +55,29 @@ def get_routing_manager(provider: str, origin: str, destination: str | None):
     provider = provider.lower()
 
     if provider == "geoapify":
+        from optimized_routing.manager.geoapify_manager import GeoapifyRoutingManager
+
         return GeoapifyRoutingManager(
             origin=origin,
             destination_override=destination,
         )
     elif provider == "google":
+        from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
+
         return GoogleMapsRoutingManager(
             origin=origin,
             destination_override=destination,
         )
     elif provider == "mapbox":
+        from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
+
         return MapboxRoutingManager(
             origin=origin,
             destination_override=destination,
         )
     elif provider == "osm":
+        from optimized_routing.manager.osm_manager import OSMRoutingManager
+
         return OSMRoutingManager(
             origin=origin,
             destination_override=destination,

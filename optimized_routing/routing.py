@@ -14,10 +14,6 @@ from datetime import datetime
 from typing import List, Optional
 import requests
 from optimized_routing.bluefolder_integration import BlueFolderIntegration
-from optimized_routing.manager.geoapify_manager import GeoapifyRoutingManager
-from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
-from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
-from optimized_routing.manager.osm_manager import OSMRoutingManager
 from optimized_routing.manager.base import RouteStop, ServiceWindow
 from optimized_routing.config import RouteConfig, settings
 from optimized_routing.utils.cache_manager import CacheManager
@@ -156,6 +152,28 @@ def dedupe_stops(stops):
     return unique
 
 
+def _manager_for_provider(provider: str):
+    """Load the routing manager class for the selected provider on demand."""
+    provider = provider.lower()
+    if provider == "geoapify":
+        from optimized_routing.manager.geoapify_manager import GeoapifyRoutingManager
+
+        return GeoapifyRoutingManager
+    if provider == "google":
+        from optimized_routing.manager.google_manager import GoogleMapsRoutingManager
+
+        return GoogleMapsRoutingManager
+    if provider == "mapbox":
+        from optimized_routing.manager.mapbox_manager import MapboxRoutingManager
+
+        return MapboxRoutingManager
+    if provider == "osm":
+        from optimized_routing.manager.osm_manager import OSMRoutingManager
+
+        return OSMRoutingManager
+    raise ValueError(f"Unknown provider '{provider}'")
+
+
 # ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
@@ -183,26 +201,26 @@ def generate_route_for_provider(
     if provider == "geoapify":
         if not settings.geoapify_api_key:
             raise ValueError("GEOAPIFY_API_KEY is required for geoapify provider")
-        manager = GeoapifyRoutingManager(
+        manager = _manager_for_provider(provider)(
             origin=origin_address or settings.default_origin,
             destination_override=destination_override,
         )
     elif provider == "google":
         if not settings.google_api_key:
             raise ValueError("GOOGLE_MAPS_API_KEY is required for google provider")
-        manager = GoogleMapsRoutingManager(
+        manager = _manager_for_provider(provider)(
             origin=origin_address or settings.default_origin,
             destination_override=destination_override,
         )
     elif provider == "mapbox":
         if not settings.mapbox_api_key:
             raise ValueError("MAPBOX_API_KEY is required for mapbox provider")
-        manager = MapboxRoutingManager(
+        manager = _manager_for_provider(provider)(
             origin=origin_address or settings.default_origin,
             destination_override=destination_override,
         )
     elif provider == "osm":
-        manager = OSMRoutingManager(
+        manager = _manager_for_provider(provider)(
             origin=origin_address or settings.default_origin,
             destination_override=destination_override,
         )
@@ -253,7 +271,7 @@ def preview_user_stops(user_id: int, origin: Optional[str] = None):
     for s in stops:
         print(f"- {s.label} | {s.window.name} | {s.address}")
 
-    mgr = GoogleMapsRoutingManager(origin=origin or "South Paris, ME")
+    mgr = _manager_for_provider("google")(origin=origin or "South Paris, ME")
     mgr.add_stops(stops)
 
     print("\n================= ROUTE URL =================")
